@@ -80,14 +80,10 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
 Компилируется в CI (portable C).
 
 ### Что в слое 2 ещё НЕ сделано (точные следующие шаги)
-1. **Патч FWSEC-образа** — `driver/gsp/fwsec_patch.{h,c}` (порт `fwsec.rs::new_fwsec`):
-   - найти `FalconAppifHdrV1` по `imem_load_size + interface_offset`;
-   - перебрать записи `FalconAppifV1`, найти `DMEMMAPPER (id=0x4)`;
-   - в `FalconAppifDmemmapperV3` выставить `init_cmd = FRTS (0x15)`;
-   - по `cmd_in_buffer_offset` записать `FrtsCmd` (ReadVbios + FrtsRegion, type FB=2,
-     addr/size = frts_addr/size >> 12);
-   - подпись: по `signature_count`/`signature_versions` и fuse-версии выбрать
-     индекс, скопировать `Bcrt30Rsa3kSignature` (384б) в `imem_load + pkc_data_offset`.
+1. **Патч FWSEC-образа** — ✅ `driver/gsp/fwsec_patch.{h,c}` (порт `fwsec.rs`):
+   парсер дескриптора (V2/V3), `nv_fwsec_patch_frts` (DMEMMAPPER init_cmd=FRTS +
+   FrtsCmd с регионом WPR2), `nv_fwsec_select_signature_index` +
+   `nv_fwsec_patch_signature` (по fuse-версии из `nv_falcon_signature_fuse_version_ga102`).
 2. **Kernel DMA в kext** — выделить coherent-буфер (`IOBufferMemoryDescriptor`),
    скопировать пропатченный ucode, получить физ. адрес → `nv_falcon_dma_load_ga102`.
 3. **Запуск FWSEC-FRTS** — `reset → dma_load → boot(mbox0=0) → mbox0==0 &&

@@ -128,6 +128,16 @@
 /* Очередь команд GSP (адрес головы). */
 #define NV_PGSP_QUEUE_HEAD           0x00110C00u
 
+/* --- FUSE: версии ucode для выбора HS-подписи (regs.rs, [16] stride 4) --- */
+#define NV_FUSE_OPT_FPF_SIZE                  16u
+#define NV_FUSE_OPT_FPF_NVDEC_UCODE1_VERSION  0x00824100u
+#define NV_FUSE_OPT_FPF_SEC2_UCODE1_VERSION   0x00824140u
+#define NV_FUSE_OPT_FPF_GSP_UCODE1_VERSION    0x008241C0u
+/* Биты engine_id_mask для выбора fuse-регистра (hal/ga102.rs). */
+#define NV_FALCON_ENGINE_ID_SEC2   0x0001u
+#define NV_FALCON_ENGINE_ID_NVDEC  0x0004u
+#define NV_FALCON_ENGINE_ID_GSP    0x0400u
+
 /* Выравнивание блоков памяти Falcon (falcon.rs MEM_BLOCK_ALIGNMENT). */
 #define NV_FALCON_MEM_BLOCK_ALIGNMENT 256u
 

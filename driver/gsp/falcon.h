@@ -78,6 +78,15 @@ void nv_falcon_program_brom_ga102(const nv_mmio_t *io, uint32_t falcon2_base,
                                   uint32_t pkc_data_offset, uint16_t engine_id_mask,
                                   uint8_t ucode_id);
 
+/*
+ * Прочитать fuse-версию подписи для данного движка (hal/ga102.rs
+ * signature_reg_fuse_version): по engine_id_mask выбирается fuse-регистр SEC2/
+ * NVDEC/GSP, индекс = ucode_id-1 (1..16). Версия = позиция старшего единичного
+ * бита (1-based), 0 если регистр пуст. Нужна для выбора нужной подписи FWSEC.
+ */
+int  nv_falcon_signature_fuse_version_ga102(const nv_mmio_t *io, uint16_t engine_id_mask,
+                                            uint8_t ucode_id, uint32_t *out_version);
+
 /* --- DMA-загрузка ucode (falcon.rs dma_wr/dma_load) --- */
 
 /* Сброс DMA-узла: FBIF_CTL.allow_phys_no_ctx=1, DMACTL=0. */

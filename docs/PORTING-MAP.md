@@ -49,12 +49,21 @@
 | `nv_falcon_select_core_ga102` | `hal/ga102.rs select_core_ga102` | BCR_CTRL core_select=Falcon, ждать valid | ✅ |
 | `nv_falcon_program_brom_ga102` | `hal/ga102.rs program_brom_ga102` | BROM_PARAADDR/ENGIDMASK/CURR_UCODE_ID, MOD_SEL=Rsa3k(1) | ✅ |
 | `nv_falcon_dma_wr`/`dma_load` | nova `falcon.rs dma_wr/dma_load` | DMATRFBASE=(dma>>8), BASE1=(dma>>40)&0x1ff, cmd size 256B, imem/sec биты, poll idle; FBIF coherent sysmem/physical | ✅ |
+| `nv_falcon_signature_fuse_version_ga102` | `hal/ga102.rs signature_reg_fuse_version` | fuse SEC2/NVDEC/GSP по engine_id_mask, idx=ucode_id-1, версия=старший бит | ✅ |
+
+## Слой 2 — Шаг 3 (патч FWSEC), `driver/gsp/fwsec_patch.{h,c}`
+
+| Наш код | Upstream (nova `fwsec.rs`) | Что взято | Сверено |
+|---|---|---|---|
+| `nv_fwsec_desc_parse` | `firmware.rs` V2/V3 | поля imem/dmem_load, interface_offset, pkc_data_offset, engine_id_mask, ucode_id, signature_count/versions | ✅ |
+| `nv_fwsec_patch_frts` | `fwsec.rs new_fwsec` | AppifHdrV1@(imem_load+interface_offset); AppifV1(id,dmem_base); DMEMMAPPER init_cmd@44=FRTS(0x15); FrtsCmd@(imem_load+cmd_in_off): ReadVbios{1,24,0,0,2}+FrtsRegion{1,20,addr>>12,size>>12,FB=2} | ✅ |
+| `nv_fwsec_select_signature_index` | `fwsec.rs FwsecFirmware::new` | bit=1<<fuse_ver; требуется (sig_versions&bit)!=0; idx=popcount(sig_versions&(bit-1)) | ✅ |
+| `nv_fwsec_patch_signature` | `fwsec.rs` patch_signature | копия 384б подписи в imem_load+pkc_data_offset | ✅ |
 
 ## Слой 2 — ещё НЕ портировано (следующие шаги)
 
 | Будущий модуль | Upstream | Что портировать |
 |---|---|---|
-| `driver/gsp/fwsec_patch.*` | nova `fwsec.rs new_fwsec` | AppifHdrV1/AppifV1/DmemmapperV3, init_cmd=FRTS(0x15), FrtsCmd(ReadVbios+FrtsRegion, FB=2, addr/size>>12), выбор+вставка подписи по fuse-версии |
 | kernel DMA (kext) | Apple `IOBufferMemoryDescriptor` | coherent-буфер, физ. адрес для `dma_load` |
 | `driver/gsp/booter.*` | nova `firmware/booter.rs` | загрузка Booter → GSP-RM в WPR2, старт RISC-V |
 | `driver/gsp/rpc.*` | OGK `message_queue_priv.h`, nouveau `r535.c` | command/status очереди в sysmem, формат RPC, первый handshake |

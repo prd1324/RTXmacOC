@@ -47,6 +47,12 @@ jobs:
           cc -Wall -Wextra -O2 -c driver/gsp/falcon.c -o build/falcon.o
           echo "OK: gsp/falcon.c"
 
+      - name: Build FWSEC patch (portable C, layer 2 step 3)
+        run: |
+          mkdir -p build
+          cc -Wall -Wextra -O2 -c driver/gsp/fwsec_patch.c -o build/fwsec_patch.o
+          echo "OK: gsp/fwsec_patch.c"
+
       - name: Build kext RTXProbe (compile-check)
         run: |
           mkdir -p build

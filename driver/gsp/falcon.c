@@ -112,6 +112,34 @@ void nv_falcon_program_brom_ga102(const nv_mmio_t *io, uint32_t falcon2_base,
     wr(io, PFALCON(falcon2_base, NV_PFALCON2_FALCON_MOD_SEL_OFF), 1u); /* FalconModSelAlgo::Rsa3k */
 }
 
+int nv_falcon_signature_fuse_version_ga102(const nv_mmio_t *io, uint16_t engine_id_mask,
+                                           uint8_t ucode_id, uint32_t *out_version)
+{
+    if (ucode_id < 1 || ucode_id > NV_FUSE_OPT_FPF_SIZE)
+        return NV_ERR_STATE;
+    uint32_t idx = (uint32_t)ucode_id - 1u;
+
+    uint32_t reg_base;
+    if (engine_id_mask & NV_FALCON_ENGINE_ID_SEC2)
+        reg_base = NV_FUSE_OPT_FPF_SEC2_UCODE1_VERSION;
+    else if (engine_id_mask & NV_FALCON_ENGINE_ID_NVDEC)
+        reg_base = NV_FUSE_OPT_FPF_NVDEC_UCODE1_VERSION;
+    else if (engine_id_mask & NV_FALCON_ENGINE_ID_GSP)
+        reg_base = NV_FUSE_OPT_FPF_GSP_UCODE1_VERSION;
+    else
+        return NV_ERR_STATE;
+
+    uint16_t reg = (uint16_t)(rd(io, reg_base + idx * 4u) & 0xFFFFu);
+
+    /* Версия = позиция старшего единичного бита (1-based), как 16 - clz16. */
+    uint32_t v = 0;
+    for (int b = 15; b >= 0; b--) {
+        if (reg & (1u << b)) { v = (uint32_t)b + 1u; break; }
+    }
+    if (out_version) *out_version = v;
+    return NV_OK;
+}
+
 int nv_falcon_reset_ga102(const nv_mmio_t *io, uint32_t base, uint32_t falcon2_base,
                           uint32_t boot0, uint32_t timeout_us)
 {

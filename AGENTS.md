@@ -104,9 +104,10 @@ docs/                   архитектура, роадмап, конспект
 - Слой 2: 🔨 план в `docs/gsp-bringup-notes.md`. Шаг 1 (VBIOS reader) ✅ —
   `tools/vbios_dump.c` локализует/извлекает FWSEC ucode. Шаг 2 (Falcon engine) ✅ —
   `driver/gsp/falcon.{h,c}` + `falcon_regs.h`: reset(GA102)/select_core/program_brom/
-  DMA-load IMEM+DMEM/start/boot/mailbox/WPR2/GFW, сверено с nova-core. Осталось:
-  патч FWSEC-образа (DMEMMAPPER init_cmd=FRTS + подпись) + kernel DMA-буфер в kext,
-  затем запуск FWSEC-FRTS → Booter → GSP-RM → очереди RPC.
+  DMA-load IMEM+DMEM/start/boot/mailbox/WPR2/GFW, сверено с nova-core. Шаг 3
+  (патч FWSEC) ✅ — `driver/gsp/fwsec_patch.{h,c}`: парс дескриптора + FRTS-патч
+  DMEMMAPPER + выбор/вставка подписи (порт `fwsec.rs`). Осталось: kernel DMA-буфер
+  в kext, затем запуск FWSEC-FRTS → Booter → GSP-RM → очереди RPC.
 - Дальше по `docs/gsp-bringup-notes.md` §7.
 
 ## Ключевые источники (референс-база)
