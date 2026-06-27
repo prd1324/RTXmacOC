@@ -55,7 +55,9 @@ int nv_fwsec_desc_parse(const uint8_t *desc, size_t len, nv_fwsec_desc_t *out)
         if (len < 44) return NV_FWSEC_ERR_BOUNDS;
         out->pkc_data_offset    = ld32(desc + 8);
         out->interface_offset   = ld32(desc + 12);
+        out->imem_phys_base     = ld32(desc + 16);
         out->imem_load_size     = ld32(desc + 20);
+        out->dmem_phys_base     = ld32(desc + 28);
         out->dmem_load_size     = ld32(desc + 32);
         out->engine_id_mask     = (uint16_t)(ld32(desc + 36) & 0xFFFFu);
         out->ucode_id           = desc[38];
@@ -65,7 +67,9 @@ int nv_fwsec_desc_parse(const uint8_t *desc, size_t len, nv_fwsec_desc_t *out)
     } else if (ver == 2) {
         if (len < 60) return NV_FWSEC_ERR_BOUNDS;
         out->interface_offset   = ld32(desc + 16);
+        out->imem_phys_base     = ld32(desc + 20);
         out->imem_load_size     = ld32(desc + 24);
+        out->dmem_phys_base     = ld32(desc + 44);
         out->dmem_load_size     = ld32(desc + 48);
         out->pkc_data_offset    = 0;
         out->engine_id_mask     = 0;

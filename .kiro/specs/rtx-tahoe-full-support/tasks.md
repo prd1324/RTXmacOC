@@ -35,10 +35,14 @@
     подписи по fuse-версии
   - _Requirements: 3.1_
 
-- [ ] 5. Kernel DMA-буфер в kext и оркестрация запуска FWSEC-FRTS
-  - выделить coherent-буфер (`IOBufferMemoryDescriptor`), скопировать пропатченный
-    ucode, отдать физ. адрес в `nv_falcon_dma_load_ga102`
-  - последовательность: reset → dma_load → boot(mbox0=0) → проверка `mbox0==0` и `nv_wpr2_is_set()`
+- [x] 5. Kernel DMA-буфер в kext и оркестрация запуска FWSEC-FRTS
+  - `driver/gsp/fwsec_locate.{h,c}` — переиспользуемый локатор FWSEC (вынесен из vbios_dump)
+  - `driver/RTXProbe/FwsecRun.{hpp,cpp}` — kext: VBIOS из BAR0 ROM shadow → locate →
+    coherent DMA-буфер (`IOBufferMemoryDescriptor`) → patch FRTS+signature →
+    reset(GA102) → dma_load → boot(mbox0=0) → проверка `mbox0==0` и `nv_wpr2_is_set()`
+  - компилируется (CI); **на железе не исполнялось**
+  - ⚠️ TODO: `frts_addr/frts_size` (регион WPR2) пока параметр — вычисление из объёма
+    VRAM отнесено к задаче 9 (L3 memory). Без него FWSEC-FRTS не запустить реально.
   - _Requirements: 3.1, 12.2_
 
 - [ ] 6. Booter Loader → загрузка GSP-RM в WPR2, старт RISC-V
@@ -58,6 +62,9 @@
 
 - [ ] 9. Memory management (GMMU/VRAM) через RPC к GSP-RM
   - alloc/map VRAM; модели данных RM API → PORTING-MAP
+  - сюда же: вычисление региона WPR2 (`frts_addr/frts_size`) из объёма VRAM
+    (`NV_PFB_PRI_MMU_LOCAL_MEMORY_RANGE` / `NV_USABLE_FB_SIZE_IN_MB`) — нужно для
+    реального запуска FWSEC-FRTS из задачи 5
   - _Requirements: 3.2_
 
 - [ ] 10. Канал команд + тестовая команда GPU

@@ -113,8 +113,11 @@ docs/                   архитектура, роадмап, конспект
 - Слой 1: 🟡 CI / 📄 SRC — код есть, декодер совпадает с ядром по чтению кода;
   **на железе не запускался**, `PMC_BOOT_0` с карты не читался.
 - Слой 2: 🟡 CI / 📄 SRC — `tools/vbios_dump`, `driver/gsp/falcon.*`,
-  `driver/gsp/fwsec_patch.*` компилируются и сверены с nova-core; **на железе не
-  исполнялись**. Дальнейший код — на паузе до решения по блокеру.
+  `driver/gsp/fwsec_patch.*`, `driver/gsp/fwsec_locate.*`, kext `driver/RTXProbe/FwsecRun.*`
+  компилируются и сверены с nova-core; **на железе не исполнялись**. Цепочка
+  FWSEC-FRTS собрана в коде (locate→patch→reset→dma_load→boot→проверка), но
+  `frts_addr/size` (регион WPR2) ещё не вычисляется — это задача 9 (L3). Дальнейший
+  код — спекой rtx-tahoe-full-support.
 - Дальше по `docs/gsp-bringup-notes.md` §7.
 
 ## Ключевые источники (референс-база)

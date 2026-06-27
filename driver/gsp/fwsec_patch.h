@@ -33,7 +33,9 @@ typedef struct {
     int      version;            /* 2 или 3 */
     uint32_t hdr_size;           /* (hdr>>16)&0xffff */
     uint32_t imem_load_size;
+    uint32_t imem_phys_base;     /* куда грузить IMEM (dst_start) */
     uint32_t dmem_load_size;
+    uint32_t dmem_phys_base;     /* куда грузить DMEM (dst_start) */
     uint32_t interface_offset;
     uint32_t pkc_data_offset;    /* V3 */
     uint16_t engine_id_mask;     /* V3 */

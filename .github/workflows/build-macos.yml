@@ -53,6 +53,27 @@ jobs:
           cc -Wall -Wextra -O2 -c driver/gsp/fwsec_patch.c -o build/fwsec_patch.o
           echo "OK: gsp/fwsec_patch.c"
 
+      - name: Build FWSEC locator (portable C, layer 2 task 5)
+        run: |
+          mkdir -p build
+          cc -Wall -Wextra -O2 -c driver/gsp/fwsec_locate.c -o build/fwsec_locate.o
+          echo "OK: gsp/fwsec_locate.c"
+
+      - name: Build FWSEC kext orchestrator (compile-check, layer 2 task 5)
+        run: |
+          mkdir -p build
+          SDK="$(xcrun --sdk macosx --show-sdk-path)"
+          clang++ -x c++ -c driver/RTXProbe/FwsecRun.cpp \
+            -arch x86_64 \
+            -isysroot "$SDK" \
+            -I"$SDK/System/Library/Frameworks/Kernel.framework/Headers" \
+            -I"$SDK/System/Library/Frameworks/Kernel.framework/PrivateHeaders" \
+            -fapple-kext -fno-builtin -fno-exceptions -fno-rtti -fno-common \
+            -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
+            -std=gnu++17 \
+            -o build/FwsecRun.o
+          echo "OK: RTXProbe/FwsecRun.cpp"
+
       - name: Build kext RTXProbe (compile-check)
         run: |
           mkdir -p build

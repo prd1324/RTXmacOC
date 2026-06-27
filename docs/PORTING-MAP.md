@@ -60,6 +60,14 @@
 | `nv_fwsec_select_signature_index` | `fwsec.rs FwsecFirmware::new` | bit=1<<fuse_ver; требуется (sig_versions&bit)!=0; idx=popcount(sig_versions&(bit-1)) | ✅ |
 | `nv_fwsec_patch_signature` | `fwsec.rs` patch_signature | копия 384б подписи в imem_load+pkc_data_offset | ✅ |
 
+## Слой 2 — Шаг 5 (kext DMA + оркестрация FWSEC), `driver/gsp/fwsec_locate.*` + `driver/RTXProbe/FwsecRun.*`
+
+| Наш код | Upstream | Что взято | Сверено |
+|---|---|---|---|
+| `nv_fwsec_locate` (fwsec_locate.c) | nova `vbios.rs` | переиспользуемый локатор FWSEC (PCIR/NPDE/BIT/PmuLookupTable), без I/O | ✅ |
+| `FwsecRun.cpp` (kext) | nova `fwsec.rs::new`+`run`, `falcon.rs` | VBIOS из BAR0 ROM shadow (0x300000) → locate → DMA-буфер (IOBufferMemoryDescriptor) → patch FRTS+signature → reset_ga102 → dma_load → boot → проверка mbox0/WPR2 | 🟡 CI (kext compile-check), на железе не исполнялось |
+| frts_addr/frts_size (регион WPR2) | nova fb/usable FB size | **НЕ реализовано** — параметр FwsecRun; вычисление из объёма VRAM отнесено к L3 | TODO |
+
 ## Слой 2 — ещё НЕ портировано (следующие шаги)
 
 | Будущий модуль | Upstream | Что портировать |

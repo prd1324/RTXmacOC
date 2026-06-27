@@ -128,6 +128,10 @@
 /* Очередь команд GSP (адрес головы). */
 #define NV_PGSP_QUEUE_HEAD           0x00110C00u
 
+/* Теневая копия VBIOS ROM в BAR0 (vbios.rs ROM_OFFSET) и лимит сканирования. */
+#define NV_ROM_SHADOW_BASE           0x00300000u
+#define NV_VBIOS_SCAN_MAX            0x00100000u
+
 /* --- FUSE: версии ucode для выбора HS-подписи (regs.rs, [16] stride 4) --- */
 #define NV_FUSE_OPT_FPF_SIZE                  16u
 #define NV_FUSE_OPT_FPF_NVDEC_UCODE1_VERSION  0x00824100u
