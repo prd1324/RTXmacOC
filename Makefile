@@ -17,7 +17,7 @@ PROBE_BIN = pcie_probe
 DUMP_DIR  = docs/hw-dumps
 DATE     := $(shell date +%Y%m%d)
 
-.PHONY: probe run dump clean mmio-linux
+.PHONY: probe run dump clean mmio-linux vbios-dump
 
 probe: $(PROBE_BIN)
 
@@ -32,7 +32,12 @@ dump: probe
 	./$(PROBE_BIN) | tee "$(DUMP_DIR)/$(DATE)-rtx4070s-pcie_probe.log"
 
 clean:
-	rm -f $(PROBE_BIN) tools/nv_mmio_linux
+	rm -f $(PROBE_BIN) tools/nv_mmio_linux tools/vbios_dump
+
+# Чтение/разбор VBIOS карты (слой 2, шаг 1). Портируемо, собирается любым cc.
+#   make vbios-dump && ./tools/vbios_dump <rom_file>
+vbios-dump:
+	cc -Wall -Wextra -O2 tools/vbios_dump.c -o tools/vbios_dump
 
 # Проверка PMC_BOOT_0 на реальной карте из Linux live-USB (без macOS, без Windows).
 # Собирать и запускать ИМЕННО на Linux: make mmio-linux && sudo ./tools/nv_mmio_linux

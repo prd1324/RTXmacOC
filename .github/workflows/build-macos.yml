@@ -35,6 +35,12 @@ jobs:
           clang pcie_probe.c -framework IOKit -framework CoreFoundation -o build/pcie_probe
           echo "OK: pcie_probe"
 
+      - name: Build vbios_dump (portable C, layer 2 step 1)
+        run: |
+          mkdir -p build
+          cc -Wall -Wextra -O2 tools/vbios_dump.c -o build/vbios_dump
+          echo "OK: vbios_dump"
+
       - name: Build kext RTXProbe (compile-check)
         run: |
           mkdir -p build
