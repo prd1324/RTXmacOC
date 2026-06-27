@@ -55,7 +55,11 @@
   - _Requirements: 3.1_
 
 - [ ] 8. HW-верификация P1 (требует macOS-стенда с RTX)
-  - снять HW-логи: «вижу Ada AD104», WPR2 set, «GSP-RM ответил на RPC» → `docs/hw-dumps/`
+  - ✅ ЧАСТИЧНО: декод `PMC_BOOT_0` подтверждён на реальной RTX 4070 Super
+    (Windows/RW-Everything, `0x194000A1` → Ada AD104, rev A1;
+    `docs/hw-dumps/20260628-rtx4070s-pmc_boot0-windows.md`).
+  - осталось на macOS-стенде: «вижу Ada AD104» из НАШего kext, WPR2 set,
+    «GSP-RM ответил на RPC» → `docs/hw-dumps/`
   - _Requirements: 2.2, 3.1, 3.4, 11.1_
 
 ### Фаза P2 — карта реально работает (L3–L4)

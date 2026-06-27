@@ -32,7 +32,7 @@ NVIDIA RTX (Ada Lovelace, например RTX 4070 Super) по-настояще
 
 | # | Слой | Статус |
 |---|------|--------|
-| 1 | **PCIe bring-up** — найти карту, смапить BAR0, прочитать chip ID (`PMC_BOOT_0`) | 🟡📄 на железе не запускался |
+| 1 | **PCIe bring-up** — найти карту, смапить BAR0, прочитать chip ID (`PMC_BOOT_0`) | 🟢 декод подтверждён на железе (kext-загрузка ждёт macOS) |
 | 2 | **GSP bring-up** — поднять GPU через GSP, наладить RPC | 🟡📄 в работе, на железе не исполнялся |
 | 3 | Memory management (GMMU/VRAM) | ⏳ |
 | 4 | Command submission (каналы) | ⏳ |
@@ -45,8 +45,9 @@ NVIDIA RTX (Ada Lovelace, например RTX 4070 Super) по-настояще
 - `pcie_probe` — чтение config space/BAR из IORegistry (компилируется).
 - kext `RTXProbe` / dext `RTXProbeDext` — матчинг `10DE:2783`, маппинг BAR0,
   чтение/декод `PMC_BOOT_0`. Компилируются в CI; **не загружались на macOS**.
-- Декодер регистра **совпадает с исходником ядра** (nova-core, chipset `0x194`) —
-  по чтению кода, не по реальному чтению регистра.
+- Декодер регистра **подтверждён на реальной RTX 4070 Super**: `PMC_BOOT_0 =
+  0x194000A1` → Ada AD104, chipset `0x194`, rev `0xA1` (Windows/RW-Everything,
+  [docs/hw-dumps/](docs/hw-dumps/)). Это первый результат, проверенный железом.
 
 **Слой 2**
 - `tools/vbios_dump` — разбор VBIOS и извлечение FWSEC (компилируется; на реальном

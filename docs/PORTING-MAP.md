@@ -17,7 +17,7 @@
 
 | Наш код | Upstream | Что взято | Сверено |
 |---|---|---|---|
-| `ada_regs.h` `NV_PMC_BOOT_0` декод | nova `regs.rs` (`NV_PMC_BOOT_0`, `NV_PMC_BOOT_42`) | поля arch[28:24]/impl[23:20], chipset=(raw>>20)&0x1ff | ✅ AD104=0x194 |
+| `ada_regs.h` `NV_PMC_BOOT_0` декод | nova `regs.rs` (`NV_PMC_BOOT_0`, `NV_PMC_BOOT_42`) | поля arch[28:24]/impl[23:20], chipset=(raw>>20)&0x1ff | 🟢 HW: `0x194000A1`→AD104 (RW-Everything) |
 | `driver/RTXProbe*` матчинг | IOKit/PCIDriverKit (Apple) | `IOPCIPrimaryMatch 0x278310de`, маппинг BAR0 | ✅ собирается в CI |
 
 ## Слой 2 — Шаг 1 (VBIOS/FWSEC), `tools/vbios_dump.c`

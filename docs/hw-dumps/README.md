@@ -31,7 +31,7 @@ YYYYMMDD-<карта>-<что>.log
 | subsystem-vendor | `0x1569` (Palit) — _подтвердить пробой_ | Windows PnP |
 | revision-id | `0xA1` — _подтвердить пробой_ | Windows PnP |
 | class-code | `0x030000` — _подтвердить пробой_ | Windows PnP |
-| **BAR0** (регистры MMIO) | base `0x52000000` size `0x1000000` (16 MB) | Windows Win32_PnPAllocatedResource |
+| **BAR0** (регистры MMIO) | base `0x52000000` size `0x1000000` (16 MB) | Windows + RW-Everything (подтверждён чтением) |
 | **BAR1** (VRAM aperture) | base `0x40000000` size `0x80000000` (2 GB) | Windows Win32_PnPAllocatedResource |
 | **BAR3** | base `0x50000000` size `0x2000000` (32 MB) | Windows Win32_PnPAllocatedResource |
 
