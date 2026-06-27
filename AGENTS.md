@@ -95,8 +95,10 @@ docs/                   архитектура, роадмап, конспект
 
 - Слой 1: ✅ код (`driver/RTXProbe`) + декодер сверен с ядром. CI зелёный.
 - Слой 2: 🔨 план в `docs/gsp-bringup-notes.md`. Шаг 1 (VBIOS reader) ✅ —
-  `tools/vbios_dump.c` локализует и извлекает FWSEC ucode (структуры из nova-core,
-  верифицированы). Следующий — Falcon primitives (reset/DMA-load/boot) поверх BAR0.
+  `tools/vbios_dump.c` локализует/извлекает FWSEC ucode. Шаг 2 (Falcon primitives)
+  🔨 — `driver/gsp/falcon.{h,c}` + `falcon_regs.h` (reset/scrub-wait/start/boot/
+  mailbox/WPR2/GFW, регистры сверены с nova-core). Осталось: DMA-load ucode +
+  программирование BROM (подпись), затем Booter/GSP-RM и очереди RPC.
 - Дальше по `docs/gsp-bringup-notes.md` §7.
 
 ## Ключевые источники (референс-база)

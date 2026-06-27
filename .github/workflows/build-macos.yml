@@ -41,6 +41,12 @@ jobs:
           cc -Wall -Wextra -O2 tools/vbios_dump.c -o build/vbios_dump
           echo "OK: vbios_dump"
 
+      - name: Build GSP Falcon primitives (portable C, layer 2 step 2)
+        run: |
+          mkdir -p build
+          cc -Wall -Wextra -O2 -c driver/gsp/falcon.c -o build/falcon.o
+          echo "OK: gsp/falcon.c"
+
       - name: Build kext RTXProbe (compile-check)
         run: |
           mkdir -p build
