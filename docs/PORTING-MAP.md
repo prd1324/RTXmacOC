@@ -43,7 +43,7 @@
 |---|---|---|---|
 | `falcon_regs.h` PFALCON/PFALCON2 | nova `regs.rs` | смещения IRQSCLR/MAILBOX/HWCFG2/CPUCTL/DMACTL/DMATRF*/IMEMC/DMEMC/ENGINE/FBIF; PFALCON2 MOD_SEL/BROM*/PRISCV | ✅ |
 | база GSP 0x110000/0x111000 | nova `falcon/gsp.rs` (`RegisterBase`) | `PFalconBase=0x110000`, `PFalcon2Base=0x111000` | ✅ |
-| WPR2 lo/hi, GFW boot | nova `regs.rs` | `0x1fa824/0x1fa828`, `0x118234` (0xff=done) | ✅ |
+| WPR2 lo/hi, GFW boot | nova `regs.rs` | `0x1fa824/0x1fa828`, `0x118234` (0xff=done) | 🟢 HW: WPR2-адреса читаемы (LO=0x1FFFFE00, HI=0 → не задан в простое); GFW не снят |
 | `nv_falcon_start`/`boot`/mailbox | nova `falcon.rs` start/boot | CPUCTL alias→ALIAS.startcpu иначе CPUCTL.startcpu; wait halted | ✅ |
 | `nv_falcon_reset_ga102` | nova `falcon.rs reset` + `hal/ga102.rs reset_eng` | reset_ready→engine reset→scrub→select_core→FALCON_RM=boot0 | ✅ |
 | `nv_falcon_select_core_ga102` | `hal/ga102.rs select_core_ga102` | BCR_CTRL core_select=Falcon, ждать valid | ✅ |
