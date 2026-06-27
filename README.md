@@ -88,6 +88,8 @@ RTX 4070 Super (AD104, `10DE:2783`) на i5-12400F + Gigabyte B760M, без iGPU
 
 - [Архитектура и стратегия](docs/ARCHITECTURE.md) — где стена и куда бьём (путь через GSP).
 - [Bring-up GSP (слой 2)](docs/gsp-bringup-notes.md) — план атаки по открытым исходникам.
+- [Состояние реализации](docs/IMPLEMENTATION.md) — что и как уже сделано, следующие шаги.
+- [Карта портирования](docs/PORTING-MAP.md) — соответствие наш код ↔ исходники nova-core.
 - [Дорожная карта, Месяц 1](docs/ROADMAP_MONTH1.md).
 - [AGENTS.md](AGENTS.md) — правила для контрибьюторов и AI-агентов.
 

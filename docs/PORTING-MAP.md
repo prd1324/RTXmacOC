@@ -1,0 +1,69 @@
+# PORTING-MAP.md — соответствие наш код ↔ исходники
+
+> Чтобы реализация оставалась верной, здесь зафиксировано, **из какого
+> upstream-файла портирован каждый наш модуль**, какие структуры/последовательности
+> взяты и проверены. Перед правкой/добавлением кода слоя 2 — сверяйся отсюда.
+>
+> Upstream (всё публичное):
+> - **OGK** = NVIDIA/open-gpu-kernel-modules (GitHub)
+> - **nova** = ядро Linux, `drivers/gpu/nova-core/` (Rust, чистый разбор)
+> - **nouveau** = ядро Linux, `drivers/gpu/drm/nouveau/` (открытая реализация GSP-RM)
+>
+> Содержимое источников пересказано/сведено для соответствия лицензии.
+
+---
+
+## Слой 1
+
+| Наш код | Upstream | Что взято | Сверено |
+|---|---|---|---|
+| `ada_regs.h` `NV_PMC_BOOT_0` декод | nova `regs.rs` (`NV_PMC_BOOT_0`, `NV_PMC_BOOT_42`) | поля arch[28:24]/impl[23:20], chipset=(raw>>20)&0x1ff | ✅ AD104=0x194 |
+| `driver/RTXProbe*` матчинг | IOKit/PCIDriverKit (Apple) | `IOPCIPrimaryMatch 0x278310de`, маппинг BAR0 | ✅ собирается в CI |
+
+## Слой 2 — Шаг 1 (VBIOS/FWSEC), `tools/vbios_dump.c`
+
+| Наш код | Upstream (nova `vbios.rs`/`firmware.rs`) | Структура/смещения |
+|---|---|---|
+| PciRomHeader | `PciRomHeader` | sig u16@0 (`0xAA55`), pci_data_ptr u16@0x18 |
+| PCIR | `PcirStruct` | sig@0, vendor@4, device@6, len u16@0x0A, image_len@0x10, code_type@0x14, last@0x15 |
+| NPDE | `NpdeStruct` | @ `(pcir+len+0xF)&~0xF`; sig "NPDE", subimage_len@0x08, last@0x0A |
+| BIT header | `BitHeader` | id `0xB8FF`, sig "BIT\0", header_size@8, token_size@9, token_entries@10 |
+| BIT token | `BitToken` | id@0, data_ver@1, data_size@2, data_offset@4; FALCON_DATA id=`0x70` |
+| falcon_data_off | `falcon_data_offset()` | `ptr - sizeof(PciAt image)` |
+| PmuLookupTable | `PmuLookupTableHeader`/`Entry` | hdr: ver,header_len,entry_len,entry_count (по 1б); entry(packed): app_id@0,target@1,data u32@2; FWSEC PROD=`0x85` |
+| falcon_ucode_off | `FwSecBiosImage::new` | `entry.data - sizeof(PciAt image)` |
+| FalconUCodeDescV3 (44б) | `firmware.rs FalconUCodeDescV3` | hdr@0, pkc_data_offset@8, interface_offset@12, imem_phys@16, **imem_load@20**, imem_virt@24, dmem_phys@28, **dmem_load@32**, engine_id_mask u16@36, ucode_id@38, signature_count@39, signature_versions u16@40 |
+| FalconUCodeDescV2 (60б) | `firmware.rs FalconUCodeDescV2` | imem_load@24, dmem_load@48 |
+| desc.size() | `FalconUCodeDescriptor::size` | `(hdr>>16)&0xffff` |
+| Bcrt30Rsa3kSignature | `fwsec.rs` | 384 байта |
+
+## Слой 2 — Шаг 2 (Falcon), `falcon_regs.h` + `driver/gsp/falcon.{h,c}`
+
+| Наш код | Upstream | Что взято | Сверено |
+|---|---|---|---|
+| `falcon_regs.h` PFALCON/PFALCON2 | nova `regs.rs` | смещения IRQSCLR/MAILBOX/HWCFG2/CPUCTL/DMACTL/DMATRF*/IMEMC/DMEMC/ENGINE/FBIF; PFALCON2 MOD_SEL/BROM*/PRISCV | ✅ |
+| база GSP 0x110000/0x111000 | nova `falcon/gsp.rs` (`RegisterBase`) | `PFalconBase=0x110000`, `PFalcon2Base=0x111000` | ✅ |
+| WPR2 lo/hi, GFW boot | nova `regs.rs` | `0x1fa824/0x1fa828`, `0x118234` (0xff=done) | ✅ |
+| `nv_falcon_start`/`boot`/mailbox | nova `falcon.rs` start/boot | CPUCTL alias→ALIAS.startcpu иначе CPUCTL.startcpu; wait halted | ✅ |
+| `nv_falcon_reset_ga102` | nova `falcon.rs reset` + `hal/ga102.rs reset_eng` | reset_ready→engine reset→scrub→select_core→FALCON_RM=boot0 | ✅ |
+| `nv_falcon_select_core_ga102` | `hal/ga102.rs select_core_ga102` | BCR_CTRL core_select=Falcon, ждать valid | ✅ |
+| `nv_falcon_program_brom_ga102` | `hal/ga102.rs program_brom_ga102` | BROM_PARAADDR/ENGIDMASK/CURR_UCODE_ID, MOD_SEL=Rsa3k(1) | ✅ |
+| `nv_falcon_dma_wr`/`dma_load` | nova `falcon.rs dma_wr/dma_load` | DMATRFBASE=(dma>>8), BASE1=(dma>>40)&0x1ff, cmd size 256B, imem/sec биты, poll idle; FBIF coherent sysmem/physical | ✅ |
+
+## Слой 2 — ещё НЕ портировано (следующие шаги)
+
+| Будущий модуль | Upstream | Что портировать |
+|---|---|---|
+| `driver/gsp/fwsec_patch.*` | nova `fwsec.rs new_fwsec` | AppifHdrV1/AppifV1/DmemmapperV3, init_cmd=FRTS(0x15), FrtsCmd(ReadVbios+FrtsRegion, FB=2, addr/size>>12), выбор+вставка подписи по fuse-версии |
+| kernel DMA (kext) | Apple `IOBufferMemoryDescriptor` | coherent-буфер, физ. адрес для `dma_load` |
+| `driver/gsp/booter.*` | nova `firmware/booter.rs` | загрузка Booter → GSP-RM в WPR2, старт RISC-V |
+| `driver/gsp/rpc.*` | OGK `message_queue_priv.h`, nouveau `r535.c` | command/status очереди в sysmem, формат RPC, первый handshake |
+
+## Конкретные upstream-ссылки (raw, ветка master ядра)
+
+- nova vbios:   `drivers/gpu/nova-core/vbios.rs`
+- nova firmware:`drivers/gpu/nova-core/firmware.rs`, `firmware/fwsec.rs`
+- nova falcon:  `drivers/gpu/nova-core/falcon.rs`, `falcon/gsp.rs`, `falcon/hal/ga102.rs`
+- nova regs:    `drivers/gpu/nova-core/regs.rs`
+- nouveau GSP:  `drivers/gpu/drm/nouveau/nvkm/subdev/gsp/r535.c`
+- OGK queues:   `src/nvidia/inc/kernel/gpu/gsp/message_queue_priv.h`
