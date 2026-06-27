@@ -45,7 +45,7 @@
 | база GSP 0x110000/0x111000 | nova `falcon/gsp.rs` (`RegisterBase`) | `PFalconBase=0x110000`, `PFalcon2Base=0x111000` | ✅ |
 | WPR2 lo/hi, GFW boot | nova `regs.rs` | `0x1fa824/0x1fa828`, `0x118234` (0xff=done) | 🟢 HW: WPR2-адреса читаемы (LO=0x1FFFFE00, HI=0 → не задан в простое); GFW не снят |
 | `nv_falcon_start`/`boot`/mailbox | nova `falcon.rs` start/boot | CPUCTL alias→ALIAS.startcpu иначе CPUCTL.startcpu; wait halted | ✅ |
-| `nv_falcon_reset_ga102` | nova `falcon.rs reset` + `hal/ga102.rs reset_eng` | reset_ready→engine reset→scrub→select_core→FALCON_RM=boot0 | ✅ |
+| `nv_falcon_reset_ga102` | nova `falcon.rs reset` + `hal/ga102.rs reset_eng` | reset_eng(reset_engine+scrub)→select_core→scrub(повторно)→FALCON_RM=boot0 | ✅ сверено 2026-06-28: порядок исправлен (добавлен 2-й wait_mem_scrubbing после select_core) |
 | `nv_falcon_select_core_ga102` | `hal/ga102.rs select_core_ga102` | BCR_CTRL core_select=Falcon, ждать valid | ✅ |
 | `nv_falcon_program_brom_ga102` | `hal/ga102.rs program_brom_ga102` | BROM_PARAADDR/ENGIDMASK/CURR_UCODE_ID, MOD_SEL=Rsa3k(1) | ✅ |
 | `nv_falcon_dma_wr`/`dma_load` | nova `falcon.rs dma_wr/dma_load` | DMATRFBASE=(dma>>8), BASE1=(dma>>40)&0x1ff, cmd size 256B, imem/sec биты, poll idle; FBIF coherent sysmem/physical | ✅ |
@@ -84,3 +84,30 @@
 - nova regs:    `drivers/gpu/nova-core/regs.rs`
 - nouveau GSP:  `drivers/gpu/drm/nouveau/nvkm/subdev/gsp/r535.c`
 - OGK queues:   `src/nvidia/inc/kernel/gpu/gsp/message_queue_priv.h`
+
+## Аудит против nova-core (2026-06-28)
+
+Полная построчная сверка FWSEC-FRTS-цепочки с актуальным master ядра
+(`falcon.rs`, `falcon/hal/ga102.rs`, `firmware.rs`, `firmware/fwsec.rs`,
+`vbios.rs`, `fb.rs`, `fb/hal/{ga102,tu102}.rs`, `regs.rs`). Скачаны raw-исходники,
+сверены смещения структур, битовые поля, порядок шагов.
+
+**Подтверждено верным (без правок):** раскладки `FalconUCodeDescV2/V3`; FRTS-патч
+(`init_cmd@44`, `cmd_in_buffer_offset@8`, `ReadVbios`/`FrtsRegion`); выбор подписи
+(`popcount(versions & (1<<fuse - 1))`); различие смещений ucode (`desc_abs+hdr_size`)
+и подписей (`desc_abs+sizeof(V3)=44`); все битовые поля regs.rs (DMATRFCMD, FBIF,
+WPR2-decode `>>4<<12`/`hi_val!=0`, BCR_CTRL, BROM, fuse, VGA_WORKSPACE); fb_layout
+(`vidmem_size` из `NV_USABLE_FB_SIZE_IN_MB` — верно для Ada/ga102; `frts_size=1MiB`;
+`align_down(vga,128K)-1MiB`); локатор FWSEC.
+
+**Найдено и исправлено:**
+- **D1** (`falcon.c` `nv_falcon_reset_ga102`): пропущено повторное
+  `reset_wait_mem_scrubbing` после `select_core` — добавлено (nova вызывает scrub
+  дважды: внутри `reset_eng` и затем в `reset()`).
+- **D2** (`FwsecRun.cpp`): добавлен явный отказ для дескриптора != V3 (путь
+  DMA-таргетов и база подписей `+44` рассчитаны только на V3; AD104 FWSEC = V3).
+
+**Верификационная заметка (на стенде):**
+- **D3** (`fwsec_locate.c`): IFR-заголовок (`NVGI`) не разбирается; на Ada PROM-смещение
+  обычно уже применено → скан с 0 корректен. Проверить по дампу ROM из BAR0+0x300000:
+  первый word должен быть `0xAA55`, а не `NVGI`. Помечено `TODO: verify` в коде.

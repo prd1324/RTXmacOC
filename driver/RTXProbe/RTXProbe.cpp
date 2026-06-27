@@ -14,6 +14,7 @@
  * инжект с релаксом SIP). Проверить на железе — это закрытие Недели 4.
  */
 #include "RTXProbe.hpp"
+#include "FwsecRun.hpp"
 
 #include <IOKit/IOLib.h>
 #include <libkern/OSByteOrder.h>
@@ -59,6 +60,20 @@ bool RTXProbe::start(IOService *provider)
     fPci->configWrite16(PCI_REG_COMMAND, cmd);
 
     bool ok = mapBar0AndReadBoot0();
+
+    /*
+     * Слой 2 (задача 8): прогон FWSEC-FRTS. Выполняем, пока устройство открыто
+     * (bus master включён — нужен для DMA в Falcon). Запускаем только на Ada
+     * (декод PMC_BOOT_0 успешен), чтобы не трогать чужие чипы. Это hardware-
+     * операция (reset GSP-Falcon + создание WPR2) — ради неё и грузится стенд.
+     */
+    if (ok && fIsAda) {
+        IOVirtualAddress base = fBar0->getVirtualAddress();
+        IOLog("RTXProbe: === запуск FWSEC-FRTS (layer 2) ===\n");
+        IOReturn fr = RTXRunFwsecFrts(fPci, reinterpret_cast<volatile void *>(base));
+        IOLog("RTXProbe: RTXRunFwsecFrts вернул 0x%08x (%s)\n",
+              fr, (fr == kIOReturnSuccess) ? "OK" : "FAIL");
+    }
 
     fPci->close(this);
 
@@ -116,7 +131,8 @@ bool RTXProbe::mapBar0AndReadBoot0(void)
           nv_arch_name(b.architecture), nv_chipset_name(b.chipset));
 
     if (b.architecture == NV_ARCHITECTURE_AD) {
-        IOLog("RTXProbe: *** ВИЖУ Ada %s — стена пробита ***\n",
+        fIsAda = true;
+        IOLog("RTXProbe: *** ВИЖУ Ada %s ***\n",
               nv_chipset_name(b.chipset));
     } else {
         IOLog("RTXProbe: arch не Ada (0x%02x) — проверить чип/раскладку полей\n",

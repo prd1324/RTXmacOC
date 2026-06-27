@@ -175,6 +175,18 @@ IOReturn RTXRunFwsecFrts(IOPCIDevice *pci, volatile void *bar0Base)
         return kIOReturnError;
     }
 
+    /*
+     * Этот путь (DMA-таргеты + база подписей = desc_abs + sizeof(V3)=44) рассчитан
+     * только на дескриптор V3 (FWSEC на Ada/AD104 — V3). V2 имеет другую раскладку
+     * (imem_sec_base/size, imem_ns, dmem_offset) и иной sizeof, поэтому молчаливая
+     * обработка дала бы неверные смещения — явно отвергаем.
+     */
+    if (desc.version != 3) {
+        IOLog("RTXFwsec: unsupported FWSEC desc version %d (path is V3-only)\n", desc.version);
+        IOFree(vbios, vbios_len);
+        return kIOReturnUnsupported;
+    }
+
     size_t ucode_off  = loc.desc_abs + desc.hdr_size;
     size_t ucode_size = (size_t)desc.imem_load_size + (size_t)desc.dmem_load_size;
     if (ucode_size == 0 || ucode_off > vbios_len || ucode_size > vbios_len - ucode_off) {

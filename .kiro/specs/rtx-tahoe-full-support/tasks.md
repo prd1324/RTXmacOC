@@ -58,8 +58,11 @@
   - ✅ ЧАСТИЧНО: декод `PMC_BOOT_0` подтверждён на реальной RTX 4070 Super
     (Windows/RW-Everything, `0x194000A1` → Ada AD104, rev A1;
     `docs/hw-dumps/20260628-rtx4070s-pmc_boot0-windows.md`).
-  - осталось на macOS-стенде: «вижу Ada AD104» из НАШего kext, WPR2 set,
-    «GSP-RM ответил на RPC» → `docs/hw-dumps/`
+  - 🔧 ГОТОВО К ПРОГОНУ: путь FWSEC-FRTS сверен с nova-core (аудит 2026-06-28,
+    `PORTING-MAP.md`); kext `RTXProbe::start()` автозапускает `RTXRunFwsecFrts`
+    на Ada; turnkey-runbook — `docs/bench-test-fwsec.md`.
+  - осталось на macOS-стенде: «вижу Ada AD104» из НАШего kext, **FWSEC: `mbox0==0`
+    и `WPR2 set=1`** (метрика P1), далее «GSP-RM ответил на RPC» → `docs/hw-dumps/`
   - _Requirements: 2.2, 3.1, 3.4, 11.1_
 
 ### Фаза P2 — карта реально работает (L3–L4)

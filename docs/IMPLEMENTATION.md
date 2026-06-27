@@ -94,7 +94,8 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
 
 `driver/gsp/falcon.{h,c}` — поверх абстрактного MMIO+DMA (`nv_mmio_t`):
 - `nv_falcon_reset_ga102`: reset_ready(≤150us, необяз.) → reset движка → ожидание
-  скраба → `select_core`(Falcon) → `FALCON_RM = PMC_BOOT_0`. (falcon.rs + ga102.rs)
+  скраба → `select_core`(Falcon) → ожидание скраба (повторно) → `FALCON_RM =
+  PMC_BOOT_0`. (falcon.rs reset + ga102.rs reset_eng; 2-й scrub добавлен по аудиту 2026-06-28)
 - `nv_falcon_select_core_ga102`: BCR_CTRL core_select=Falcon, ждать valid.
 - `nv_falcon_program_brom_ga102`: BROM_PARAADDR/ENGIDMASK/CURR_UCODE_ID, MOD_SEL=RSA3K.
 - `nv_falcon_dma_reset` + `nv_falcon_dma_wr` + `nv_falcon_dma_load_ga102`:
@@ -120,6 +121,27 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
    nouveau `r535.c`) → первый RPC. ← **метрика слоя 2**.
 
 ---
+
+---
+
+## Аудит FWSEC-FRTS против nova-core (2026-06-28) — 📄 SRC
+
+Построчная сверка слоя 2 (`driver/gsp/*`, `FwsecRun.cpp`) с актуальным master
+ядра по скачанным raw-исходникам. Подробности и список сверенного — в
+`PORTING-MAP.md` (раздел «Аудит против nova-core»). Итог:
+
+- **Расхождения исправлены:** D1 — добавлено повторное ожидание скраба памяти
+  после `select_core` в `nv_falcon_reset_ga102` (`falcon.c`); D2 — `FwsecRun.cpp`
+  теперь явно отвергает дескриптор != V3.
+- **Подтверждено верным без правок:** раскладки дескрипторов V2/V3, FRTS-патч,
+  выбор подписи, различие смещений ucode (`+hdr_size`) и подписей (`+44`), все
+  битовые поля regs.rs, расчёт FRTS-региона (fb_layout), локатор FWSEC.
+- **К проверке на стенде (D3):** разбор IFR-заголовка (`NVGI`) не реализован — на
+  Ada ожидаемо не нужен, но проверить по дампу ROM.
+
+Статус по-прежнему 📄 SRC / 🟡 CI: код сверен с исходником, **на железе не
+исполнялся**. Следующий шаг — задача 8 (HW-верификация на стенде),
+runbook: `docs/bench-test-fwsec.md`.
 
 ## Инварианты (не нарушать, иначе «сходим с пути»)
 

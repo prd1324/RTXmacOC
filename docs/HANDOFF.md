@@ -25,7 +25,7 @@ WindowServer: (1) library validation не пускает чужой Metal-бан
 | Слой | Что | Статус |
 |---|---|---|
 | 1 PCIe bring-up | найти карту, BAR0, `PMC_BOOT_0` | 🟢 декод подтверждён железом; kext-загрузка ждёт стенда |
-| 2 GSP bring-up | FWSEC-FRTS→WPR2→Booter→GSP-RM→RPC | 🟡 цепочка FWSEC-FRTS дописана в коде; Booter+RPC — НЕ начаты |
+| 2 GSP bring-up | FWSEC-FRTS→WPR2→Booter→GSP-RM→RPC | 🟡 FWSEC-FRTS дописан и сверен с nova-core (аудит 2026-06-28), kext автозапускает прогон; ждёт стенда. Booter+RPC — НЕ начаты |
 | 3 память (GMMU) | VRAM через RPC | ⏳ |
 | 4 каналы | command submission | ⏳ |
 | 5 дисплей | IOFramebuffer/WindowServer | ⛔ замок Apple |
@@ -62,11 +62,21 @@ WindowServer: (1) library validation не пускает чужой Metal-бан
 
 ## Критический путь дальше (tasks.md)
 
-1. **Задача 8 (рекомендуется сейчас): HW-верификация P1 на стенде.** FWSEC-FRTS
-   дописан — пора проверить, а не громоздить дальше вслепую.
+1. **Задача 8 (сейчас): HW-верификация P1 на стенде.** FWSEC-FRTS дописан, сверен
+   с nova-core построчно (аудит 2026-06-28, см. `PORTING-MAP.md`), kext
+   `RTXProbe::start()` автозапускает `RTXRunFwsecFrts` на Ada. **Turnkey-runbook:
+   `docs/bench-test-fwsec.md`.** Метрика: `mbox0==0` И `WPR2 set=1` в логе.
+   НЕ начинать задачи 6–7, пока этот лог не получен (Правило 0).
 2. Задача 6: Booter → GSP-RM (порт `firmware/booter.rs` + `gsp/*`). Большой порт.
 3. Задача 7: очереди RPC (`message_queue_priv.h`, nouveau `r535.c`) → первый RPC = метрика слоя 2.
 4. Задачи 9–10 (память/каналы), 12–17 (дисплей/Metal = замки Apple, гейт R10).
+
+### Что сделано в этой сессии (2026-06-28)
+- Аудит FWSEC-FRTS против nova-core master: исправлено D1 (повторный
+  `reset_wait_mem_scrubbing` после `select_core` в `falcon.c`), D2 (отказ для
+  не-V3 дескриптора в `FwsecRun.cpp`); D3 (IFR-заголовок) — помечен `TODO: verify`.
+- `RTXProbe::start()` теперь вызывает `RTXRunFwsecFrts` на Ada (turnkey).
+- Написан runbook `docs/bench-test-fwsec.md`.
 
 ## Как проверять на железе (ограничения стенда)
 

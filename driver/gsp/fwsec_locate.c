@@ -81,6 +81,13 @@ int nv_fwsec_locate(const uint8_t *vbios, size_t len, nv_fwsec_location_t *out)
 {
     if (!vbios || !out) return NV_FWSEC_LOC_ERR_BOUNDS;
 
+    /*
+     * TODO: verify на стенде. nova vbios.rs перед PCI-образами умеет пропускать
+     * IFR-заголовок (сигнатура "NVGI" по BAR0+0x300000) — это нужно в основном на
+     * GA100. На Ada/AD104 IFR-смещение обычно уже применено к PROM-теневой копии,
+     * поэтому скан начинается с 0 и первый word = ROM_SIG(0xAA55). Если дамп ROM на
+     * железе начнётся с "NVGI" — здесь потребуется разбор IFR (rom_offset).
+     */
     struct image imgs[32];
     int n = walk_images(vbios, len, imgs, 32);
     if (n == 0) return NV_FWSEC_LOC_ERR_NOSIG;

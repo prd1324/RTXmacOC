@@ -21,6 +21,7 @@ public:
 private:
     IOPCIDevice  *fPci  = nullptr;
     IOMemoryMap  *fBar0 = nullptr;
+    bool          fIsAda = false; /* выставляется при успешном декоде PMC_BOOT_0 */
 
     bool mapBar0AndReadBoot0(void);
 };

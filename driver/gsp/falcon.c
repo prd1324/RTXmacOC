@@ -154,11 +154,18 @@ int nv_falcon_reset_ga102(const nv_mmio_t *io, uint32_t base, uint32_t falcon2_b
         waited += 10;
     }
 
+    /* reset_eng (hal/ga102.rs): сброс движка + ожидание скраба памяти. */
     nv_falcon_reset_engine(io, base);
     int rc = nv_falcon_wait_mem_scrubbing(io, base, timeout_us);
     if (rc != NV_OK) return rc;
 
+    /* falcon.rs reset(): select_core. */
     rc = nv_falcon_select_core_ga102(io, falcon2_base, timeout_us);
+    if (rc != NV_OK) return rc;
+
+    /* falcon.rs reset(): после select_core — ПОВТОРНОЕ ожидание скраба памяти
+       (nova вызывает reset_wait_mem_scrubbing второй раз перед записью FALCON_RM). */
+    rc = nv_falcon_wait_mem_scrubbing(io, base, timeout_us);
     if (rc != NV_OK) return rc;
 
     /* falcon.rs reset(): FALCON_RM = PMC_BOOT_0. */
