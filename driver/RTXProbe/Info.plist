@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>RTXProbe</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.rtxmacoc.RTXProbe</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>RTXProbe</string>
+	<key>CFBundlePackageType</key>
+	<string>KEXT</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>OSBundleLibraries</key>
+	<dict>
+		<key>com.apple.iokit.IOPCIFamily</key>
+		<string>2.9</string>
+		<key>com.apple.kpi.iokit</key>
+		<string>8.0</string>
+		<key>com.apple.kpi.libkern</key>
+		<string>8.0</string>
+	</dict>
+	<key>IOKitPersonalities</key>
+	<dict>
+		<key>RTXProbe</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>org.rtxmacoc.RTXProbe</string>
+			<key>IOClass</key>
+			<string>RTXProbe</string>
+			<key>IOProviderClass</key>
+			<string>IOPCIDevice</string>
+			<!-- 0xDDDDVVVV: device 0x2783 (AD104 RTX 4070 Super), vendor 0x10de.
+			     Можно перечислить несколько через пробел для других Ada-чипов. -->
+			<key>IOPCIPrimaryMatch</key>
+			<string>0x278310de</string>
+			<!-- Приоритет матчинга. Выше, чем generic, чтобы перебить дефолтные
+			     дисплейные драйверы Apple для этого слота. -->
+			<key>IOProbeScore</key>
+			<integer>100000</integer>
+		</dict>
+	</dict>
+</dict>
+</plist>

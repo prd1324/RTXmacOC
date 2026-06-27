@@ -1,0 +1,30 @@
+name: build-macos
+
+# Сборка драйверов RTXmacOC на macOS-раннере (Intel, x86_64 — как наш таргет).
+# Проверяет компиляцию kext + dext + user-space пробы. Запуск на железе сюда
+# не входит (RTX в раннере нет) — только доказательство, что код собирается.
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-13 = Intel x86_64 (наш целевой arch для Hackintosh).
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (kext + dext + probe)
+        run: bash tools/ci_build_macos.sh
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtxmacoc-build
+          path: build/
+          if-no-files-found: ignore

@@ -12,6 +12,11 @@
 
 **Результат:** воспроизводимое окружение + реальные данные карты.
 
+> **Исполнителю:** пошаговый разбор этой недели с точными командами, ожидаемым
+> выводом и критериями готовности — в [week1-runbook.md](./week1-runbook.md).
+> Шаблоны артефактов уже заведены: `docs/testbed.md`, `docs/hw-dumps/`,
+> скелеты `skeletons/EmptyKext/` и `skeletons/EmptyDext/`, корневой `Makefile`.
+
 - [ ] Зафиксировать таргет: **x86 Hackintosh под OpenCore**, RTX как основная карта.
 - [ ] Собрать `pcie_probe` на реальном хакинтоше с RTX 4070 Super:
       `clang pcie_probe.c -framework IOKit -framework CoreFoundation -o pcie_probe`

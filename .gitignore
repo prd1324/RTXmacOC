@@ -1,0 +1,17 @@
+# Артефакты сборки
+build/
+*.o
+*.dSYM/
+
+# user-space проба
+pcie_probe
+tools/nv_mmio_linux
+
+# сгенерированное iig
+*.iig.cpp
+RTXProbeDext.h
+
+# macOS/IDE мусор
+.DS_Store
+*.xcuserstate
+xcuserdata/

@@ -53,6 +53,8 @@
 
 - [Архитектура и стратегия атаки](docs/ARCHITECTURE.md) — где стена и куда бьём (ключевое: путь через GSP).
 - [Дорожная карта, Месяц 1](docs/ROADMAP_MONTH1.md) — конкретные задачи по неделям.
+- [Runbook Недели 1](docs/week1-runbook.md) — пошаговая инструкция исполнителю: команды, ожидаемый вывод, критерии готовности.
+- [Тестовый стенд](docs/testbed.md) — шаблон описания окружения (macOS, OpenCore, SIP).
 
 ## 🗺️ Дорожная карта (черновик)
 
@@ -84,11 +86,13 @@
 **Сборка (на macOS):**
 
 ```sh
-clang probe/pcie_probe.c -framework IOKit -framework CoreFoundation -o pcie_probe
+make probe      # или вручную, как ниже
+clang pcie_probe.c -framework IOKit -framework CoreFoundation -o pcie_probe
 ./pcie_probe
 ```
 
 Зависит только от системных фреймворков macOS. Стороннего ничего не нужно.
+`make dump` сразу сохранит вывод в `docs/hw-dumps/` с датой.
 
 ---
 

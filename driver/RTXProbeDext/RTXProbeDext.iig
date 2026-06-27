@@ -1,0 +1,19 @@
+/*
+ * RTXProbeDext.iig — интерфейс DriverKit-драйвера (альтернативный канал).
+ * Делает то же, что kext RTXProbe, но через PCIDriverKit/dext.
+ */
+#ifndef RTXProbeDext_h
+#define RTXProbeDext_h
+
+#include <DriverKit/IOService.iig>
+
+class RTXProbeDext: public IOService
+{
+public:
+    virtual bool init() override;
+    virtual kern_return_t Start(IOService * provider) override;
+    virtual kern_return_t Stop(IOService * provider) override;
+    virtual void free() override;
+};
+
+#endif /* RTXProbeDext_h */
