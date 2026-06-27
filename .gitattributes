@@ -1,0 +1,2 @@
+# Шелл-скрипты всегда с LF, иначе bash на macOS-раннере падает с bad interpreter
+*.sh text eol=lf
