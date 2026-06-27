@@ -39,11 +39,16 @@
 
 **Результат:** документ, как macOS видит и обслуживает GPU.
 
-- [ ] Разобрать цепочку: IOPCIFamily → PCIDriverKit → IOGraphics/IOAccelerator.
-- [ ] Отметить, что открыто (XNU, IOKit, IOGraphics частично) и что закрыто (Metal).
+- [x] Разобрать цепочку: IOPCIFamily → PCIDriverKit → IOGraphics/IOAccelerator.
+- [x] Отметить, что открыто (XNU, IOKit, IOGraphics частично) и что закрыто (Metal).
 - [ ] Таблица: модель доступа на каждой версии macOS (kext vs dext, требования SIP).
 - [ ] Решить: целевой минимум macOS-версии для первой фазы.
-- [ ] Документ: `docs/macos-graphics-stack.md`.
+- [x] Документ: `docs/macos-graphics-stack.md`.
+      → **ВЫВОД (блокер):** публичной точки расширения для стороннего GPU-акселератора
+      в WindowServer на Big Sur+ нет (library validation + приватные интерфейсы +
+      DriverKit без графики). Слой 5 (вывод) сторонним драйвером на актуальной macOS
+      заблокирован политикой Apple. Требуется решение по направлению проекта ДО
+      продолжения кода слоёв 2+.
 
 ## Неделя 3 — Карта стороны NVIDIA + первый dext
 
