@@ -12,8 +12,9 @@ on:
 
 jobs:
   build:
-    # macos-13 = Intel x86_64 (наш целевой arch для Hackintosh).
-    runs-on: macos-13
+    # macos-latest = Apple Silicon (быстро доступен). Код собираем под
+    # -arch x86_64 (целевой Hackintosh-arch) — кросс-компиляция для compile-check.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
