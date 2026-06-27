@@ -99,25 +99,26 @@ docs/                   архитектура, роадмап, конспект
 
 ## Текущий статус (обновлять)
 
-> Детальный статус и следующие шаги — в `docs/IMPLEMENTATION.md`.
-> Соответствие исходникам — в `docs/PORTING-MAP.md`.
+> **Новому агенту: начни с `docs/HANDOFF.md`** — самодостаточная сводка.
+> Детальный статус — `docs/IMPLEMENTATION.md`; соответствие исходникам — `docs/PORTING-MAP.md`.
 >
-> **Легенда честности:** 🟢 HW = подтверждено логом с железа (сейчас НИ ОДНОГО);
-> 🟡 CI = только компилируется; 📄 SRC = совпадает с исходником при чтении кода.
+> **Легенда честности:** 🟢 HW = подтверждено логом с железа; 🟡 CI = только
+> компилируется; 📄 SRC = совпадает с исходником при чтении кода.
 
-- ⚠️ **БЛОКЕР (Неделя 2):** публичной точки расширения для стороннего GPU-
-  акселератора в WindowServer на Big Sur+ **нет** (library validation + приватные
-  интерфейсы + DriverKit без графики). Вывод изображения сторонним драйвером
-  заблокирован Apple. См. `docs/macos-graphics-stack.md`. Это решается с владельцем
-  проекта ДО написания нового кода слоёв 2+.
-- Слой 1: 🟡 CI / 📄 SRC — код есть, декодер совпадает с ядром по чтению кода;
-  **на железе не запускался**, `PMC_BOOT_0` с карты не читался.
-- Слой 2: 🟡 CI / 📄 SRC — `tools/vbios_dump`, `driver/gsp/falcon.*`,
-  `driver/gsp/fwsec_patch.*`, `driver/gsp/fwsec_locate.*`, kext `driver/RTXProbe/FwsecRun.*`
-  компилируются и сверены с nova-core; **на железе не исполнялись**. Цепочка
-  FWSEC-FRTS собрана в коде (locate→patch→reset→dma_load→boot→проверка), но
-  `frts_addr/size` (регион WPR2) ещё не вычисляется — это задача 9 (L3). Дальнейший
-  код — спекой rtx-tahoe-full-support.
+- ⚠️ **БЛОКЕР (Неделя 2):** на Big Sur+ нет публичной точки расширения для стороннего
+  GPU-акселератора в WindowServer (library validation + приватный Metal-ABI +
+  DriverKit без графики). Слои 5–6 заблокированы Apple; обход — `docs/macos-graphics-stack.md`.
+- 🟢 **Подтверждено на железе** (Windows/RW-Everything на RTX 4070 Super):
+  BAR0=`0x52000000`, `PMC_BOOT_0=0x194000A1` (Ada AD104, rev A1), адреса WPR2-регистров.
+  См. `docs/hw-dumps/`.
+- Слой 1: 🟢 декод подтверждён железом; загрузка НАШего kext на macOS — ждёт стенда.
+- Слой 2: 🟡/📄 цепочка **FWSEC-FRTS дописана в коде** и самодостаточна
+  (`driver/gsp/{falcon,fwsec_patch,fwsec_locate,fb_layout}.*` + kext `driver/RTXProbe/FwsecRun.*`),
+  сверена с nova-core, **на железе не исполнялась**. НЕ начаты: Booter (задача 6),
+  очереди RPC (задача 7).
+- Спека: `.kiro/specs/rtx-tahoe-full-support/` (requirements/design/tasks).
+- Открытое решение: A — верифицировать FWSEC-FRTS на стенде (есть Haswell-станция
+  для установки macOS на USB-SSD), либо B — продолжать порт Booter+RPC.
 - Дальше по `docs/gsp-bringup-notes.md` §7.
 
 ## Ключевые источники (референс-база)
