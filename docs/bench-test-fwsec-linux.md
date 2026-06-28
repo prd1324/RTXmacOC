@@ -42,31 +42,37 @@ Linux с флешки грузится **на целевой машине (i5-12
 
 ## 1. Подготовить Ventoy-флешку (из Windows, без второй машины)
 
-На дата-раздел Ventoy-флешки положить три вещи:
-1. **ISO Ubuntu** (24.04 Desktop Live — в нём есть «Terminal»; подойдёт и любой live с консолью).
+На дата-раздел Ventoy-флешки положить:
+1. **Live-ISO Linux** — у тебя уже есть **Manjaro XFCE** (kernel 6.18) на Ventoy,
+   он подходит. (Любой современный live с VFIO и консолью тоже годится.)
 2. Готовый бинарь **`fwsec_run_linux`** — скачать из артефактов CI:
    GitHub → Actions → workflow **build-linux** → последний зелёный запуск →
    artifact **`rtxmacoc-linux-build`** → внутри `fwsec_run_linux`.
 3. Скрипт **`tools/bench-vfio-run.sh`** из репозитория.
 
-> Компилировать на стенде не нужно — бинарь из CI уже собран под Linux x86_64.
-> Если хочешь собрать сам: на стенде `cc ... tools/fwsec_run_linux.c driver/gsp/*.c`
-> (нужен `git` + `gcc`), но это лишний шаг.
+> Бинарь из CI собран на Ubuntu (glibc 2.39) и запускается на Manjaro (glibc новее) —
+> совместимо (старая glibc → новая работает). Компилировать на стенде не нужно.
+> При желании собрать на Manjaro: `sudo pacman -S gcc` (нужна сеть), затем
+> `cc tools/fwsec_run_linux.c driver/gsp/*.c -o fwsec_run_linux`.
 
 ## 2. Загрузить Live-ISO на машине с RTX (локально, с монитором)
 
-1. Воткни Ventoy-флешку в i5-12400F, в меню Ventoy выбери ISO Ubuntu.
-2. **Рекомендуется** на загрузке добавить параметры ядра (в GRUB нажми `e`, допиши в
-   строку `linux ...`): `intel_iommu=on iommu=pt modprobe.blacklist=nouveau`.
+1. Воткни Ventoy-флешку в i5-12400F, в меню Ventoy выбери **Manjaro XFCE**.
+2. **Рекомендуется** на загрузке добавить параметры ядра. В меню загрузки Manjaro
+   нажми `e`, найди строку, начинающуюся с `linux ...`, и допиши в конец:
+   `intel_iommu=on iommu=pt modprobe.blacklist=nouveau`, затем загрузись (`F10`/`Ctrl-X`).
    - `intel_iommu=on` — нужен для VFIO;
-   - `modprobe.blacklist=nouveau` — чтобы nouveau не хватал карту (консоль останется на `efifb`).
-3. Дождись рабочего стола Ubuntu (он на программном рендере — может быть медленным, это ок),
-   открой **Terminal**.
+   - `modprobe.blacklist=nouveau` — чтобы nouveau не хватал карту (локальная консоль
+     останется на `efifb`/`simpledrm`).
+   - (в Manjaro можно и через меню выбрать `nonfree`/`free` драйверы — выбирай так,
+     чтобы nouveau не грузился; параметр выше надёжнее).
+3. Дождись рабочего стола XFCE (на программном рендере — может быть небыстрым, это ок).
+   Файловый менеджер — **Thunar**, терминал — **xfce4-terminal**.
 
 ## 3. Запуск — одна команда, без аргументов
 
-В Ubuntu Live открой файловый менеджер, кликни на раздел Ventoy (он смонтируется
-сам), открой в нём терминал (правый клик → «Open in Terminal»). Дальше:
+В Manjaro XFCE открой **Thunar**, кликни на раздел Ventoy (смонтируется сам), внутри
+него открой терминал (правый клик → «Open Terminal Here»). Дальше:
 
 ```sh
 sudo bash bench-vfio-run.sh
