@@ -39,6 +39,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
+#include <dirent.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <linux/vfio.h>
@@ -359,13 +360,63 @@ static int run_fwsec(const nv_mmio_t *io, uint64_t dma_iova, uint8_t *dma_buf, s
     return -1;
 }
 
+/* ===================== авто-детект BDF карты NVIDIA ===================== */
+
+/* Найти первую PCI-функцию NVIDIA (vendor 0x10de) класса дисплея (0x03xxxx).
+   Пишет BDF в out (напр. "0000:01:00.0"). Возвращает 0 при успехе. */
+static int find_nvidia_bdf(char *out, size_t outlen)
+{
+    DIR *d = opendir("/sys/bus/pci/devices");
+    if (!d) return -1;
+    struct dirent *e;
+    char best[32] = {0};
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        char path[300]; char buf[32];
+        FILE *f;
+        unsigned vendor = 0, class_code = 0;
+
+        snprintf(path, sizeof(path), "/sys/bus/pci/devices/%s/vendor", e->d_name);
+        f = fopen(path, "r");
+        if (!f) continue;
+        if (fgets(buf, sizeof(buf), f)) vendor = (unsigned)strtoul(buf, NULL, 16);
+        fclose(f);
+        if (vendor != 0x10de) continue;
+
+        snprintf(path, sizeof(path), "/sys/bus/pci/devices/%s/class", e->d_name);
+        f = fopen(path, "r");
+        if (!f) continue;
+        if (fgets(buf, sizeof(buf), f)) class_code = (unsigned)strtoul(buf, NULL, 16);
+        fclose(f);
+
+        /* класс дисплея: 0x0300xx (VGA) или 0x0302xx (3D). Берём VGA приоритетно. */
+        if ((class_code >> 16) == 0x03) {
+            if ((class_code >> 8) == 0x0300) { /* VGA — лучший кандидат */
+                snprintf(out, outlen, "%s", e->d_name);
+                closedir(d);
+                return 0;
+            }
+            if (best[0] == 0) snprintf(best, sizeof(best), "%s", e->d_name);
+        }
+    }
+    closedir(d);
+    if (best[0]) { snprintf(out, outlen, "%s", best); return 0; }
+    return -1;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <pci-bdf, напр. 0000:01:00.0>\n", argv[0]);
-        return 2;
+    char auto_bdf[32];
+    const char *bdf = (argc >= 2) ? argv[1] : NULL;
+    if (!bdf) {
+        if (find_nvidia_bdf(auto_bdf, sizeof(auto_bdf)) == 0) {
+            bdf = auto_bdf;
+            printf("BDF (авто-детект): %s\n", bdf);
+        } else {
+            fprintf(stderr, "usage: %s [pci-bdf]  (NVIDIA не найдена для авто-детекта)\n", argv[0]);
+            return 2;
+        }
     }
-    const char *bdf = argv[1];
 
     struct vfio_ctx v;
     if (vfio_open(&v, bdf) != 0) { vfio_close(&v); return 1; }
