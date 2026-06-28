@@ -1,0 +1,64 @@
+name: build-linux
+
+# Компиляция Linux-only артефактов RTXmacOC на Linux-раннере.
+# Сейчас это VFIO-харнесс HW-верификации FWSEC-FRTS (tools/fwsec_run_linux.c),
+# который переиспользует портируемые модули driver/gsp/*. На macOS-раннере он не
+# собирается (нужен linux/vfio.h) — поэтому отдельный Linux-workflow.
+# Это проверка СБОРКИ, не запуска: реальный прогон — только на стенде с RTX
+# (см. docs/bench-test-fwsec-linux.md).
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain + kernel uapi headers
+        run: |
+          cc --version
+          # linux/vfio.h обычно уже есть; гарантируем наличие uapi-заголовков.
+          sudo apt-get update
+          sudo apt-get install -y linux-libc-dev
+          ls -l /usr/include/linux/vfio.h
+
+      - name: Build portable GSP modules (layer 2)
+        run: |
+          mkdir -p build
+          for f in falcon fwsec_patch fwsec_locate fb_layout; do
+            cc -Wall -Wextra -O2 -c driver/gsp/$f.c -o build/$f.o
+            echo "OK: driver/gsp/$f.c"
+          done
+
+      - name: Build vbios_dump (portable C)
+        run: |
+          cc -Wall -Wextra -O2 tools/vbios_dump.c -o build/vbios_dump
+          echo "OK: tools/vbios_dump"
+
+      - name: Build VFIO FWSEC harness (Linux-only)
+        run: |
+          cc -Wall -Wextra -O2 \
+            tools/fwsec_run_linux.c \
+            driver/gsp/falcon.c driver/gsp/fwsec_patch.c \
+            driver/gsp/fwsec_locate.c driver/gsp/fb_layout.c \
+            -o build/fwsec_run_linux
+          echo "OK: tools/fwsec_run_linux (VFIO harness)"
+
+      - name: Build nv_mmio_linux (portable register reader)
+        run: |
+          cc -Wall -Wextra -O2 tools/nv_mmio_linux.c -o build/nv_mmio_linux
+          echo "OK: tools/nv_mmio_linux"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtxmacoc-linux-build
+          path: build/
+          if-no-files-found: ignore
