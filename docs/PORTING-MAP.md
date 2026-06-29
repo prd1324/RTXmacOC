@@ -216,3 +216,20 @@ HW-проверенный FRTS (`nv_fb_compute_frts`): `make gsp-stage-test`.
 Остаётся (фаза 5-6): libos init-args; оркестрация на железе (выделить sysmem под
 radix3/bootloader/sig/meta/libos, boot GSP-фалкона с libos-handle, Booter с реальным
 WPR-handle=meta DMA → mbox0==0 → RISC-V active).
+
+## libos init-args (задача 6, фаза 5) — ✅ офлайн 2026-06-30
+
+`driver/gsp/gsp_fw.{h,c}`: `nv_gsp_libos_id8`, `nv_gsp_libos_build_args`,
+`nv_gsp_pte_array_fill`. Проверено офлайн (`make gsp-stage-test`).
+
+| Наш код | Upstream | Что | Статус |
+|---|---|---|---|
+| `LibosMemoryRegionInitArgument` | OGK `libos_init_args.h` | id8@0,pa@8,size@16,kind@24(u8),loc@25(u8); 32б | ✅ |
+| kind/loc | OGK enum | CONTIGUOUS=1, LOC_SYSMEM=1 | ✅ |
+| `nv_gsp_libos_id8` | nouveau `r535_gsp_libos_id8` | id=(id<<8)\|c, до 8 символов | ✅ id8(LOGINIT)=0x4c4f47494e4954 |
+| `nv_gsp_libos_build_args` | nouveau `r535_gsp_libos_init` | записи LOGINIT/LOGINTR/LOGRM(0x10000)+RMARGS, CONTIGUOUS/SYSMEM | ✅ |
+| `nv_gsp_pte_array_fill` | nouveau `create_pte_array` | u64 на 4K-страницу: base+i·4K (put-указатель@0, PTE@8) | ✅ |
+
+Все офлайн-кирпичи фазы 4-5 готовы. Остаётся фаза 6 (HW): оркестратор — выделить
+sysmem (VFIO) под radix3(lvl0/1/2)+bootloader+signature+WprMeta+libos+логи, разместить,
+boot GSP-фалкона с libos-handle, SEC2 Booter с WPR-handle=WprMeta DMA → mbox0==0 → RISC-V active.

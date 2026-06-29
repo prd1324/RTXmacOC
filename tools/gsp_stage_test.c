@@ -121,7 +121,29 @@ int main(void)
     printf("GspFwWprMeta: magic=0x%llx wprStart=0x%llx wprEnd=0x%llx heapSize=0x%llx (256б)\n",
            (ull)ld64(meta+0), (ull)ld64(meta+112), (ull)ld64(meta+168), (ull)ld64(meta+128));
 
-    printf(ok ? "\n=== РЕЗУЛЬТАТ: OK (секции/desc/radix3/WPR2-layout/WprMeta согласованы) ===\n"
+    /* --- libos init-args (фаза 5) --- */
+    nv_gsp_libos_region_t regs[4] = {
+        { "LOGINIT", 0x40000000ull, NV_GSP_LIBOS_LOG_SIZE },
+        { "LOGINTR", 0x40010000ull, NV_GSP_LIBOS_LOG_SIZE },
+        { "LOGRM",   0x40020000ull, NV_GSP_LIBOS_LOG_SIZE },
+        { "RMARGS",  0x40030000ull, 0x1000ull },
+    };
+    uint8_t libos[4 * NV_GSP_LIBOS_ARG_SIZE];
+    size_t libos_sz = 0;
+    rc = nv_gsp_libos_build_args(libos, sizeof(libos), regs, 4, &libos_sz);
+    if (rc != NV_GSP_OK) { fprintf(stderr, "FAIL: libos_build_args rc=%d\n", rc); return 1; }
+    printf("libos args: %zu байт (%d записей по %u)\n", libos_sz, 4, NV_GSP_LIBOS_ARG_SIZE);
+    for (int i = 0; i < 4; i++) {
+        const uint8_t *e = libos + i * NV_GSP_LIBOS_ARG_SIZE;
+        printf("  [%d] %-8s id8=0x%llx pa=0x%llx size=0x%llx kind=%u loc=%u\n", i, regs[i].name,
+               (ull)ld64(e), (ull)ld64(e+8), (ull)ld64(e+16), e[24], e[25]);
+        if (ld64(e) != nv_gsp_libos_id8(regs[i].name)) { printf("   ✗ id8\n"); ok = 0; }
+        if (ld64(e+8) != regs[i].pa || ld64(e+16) != regs[i].size) { printf("   ✗ pa/size\n"); ok = 0; }
+        if (e[24] != NV_GSP_LIBOS_KIND_CONTIGUOUS || e[25] != NV_GSP_LIBOS_LOC_SYSMEM) { printf("   ✗ kind/loc\n"); ok = 0; }
+    }
+    if (nv_gsp_libos_id8("LOGINIT") != 0x4C4F47494E4954ull) { printf("  ✗ id8(LOGINIT) эталон\n"); ok = 0; }
+
+    printf(ok ? "\n=== РЕЗУЛЬТАТ: OK (секции/desc/radix3/WPR2/WprMeta/libos согласованы) ===\n"
               : "\n=== РЕЗУЛЬТАТ: FAIL (см. ✗) ===\n");
     return ok ? 0 : 1;
 }

@@ -144,6 +144,47 @@ int nv_gsp_wpr_meta_build(uint8_t *buf, size_t buflen,
     return NV_GSP_OK;
 }
 
+/* ===================== libos init-args ===================== */
+
+uint64_t nv_gsp_libos_id8(const char *name)
+{
+    uint64_t id = 0;
+    for (int i = 0; i < 8 && name && name[i]; i++)
+        id = (id << 8) | (uint8_t)name[i];
+    return id;
+}
+
+int nv_gsp_libos_build_args(uint8_t *buf, size_t buflen,
+                            const nv_gsp_libos_region_t *regions, unsigned n,
+                            size_t *out_size)
+{
+    if (!buf || !regions || !out_size) return NV_GSP_ERR_ARG;
+    if ((uint64_t)n * NV_GSP_LIBOS_ARG_SIZE > buflen) return NV_GSP_ERR_BOUNDS;
+    for (size_t i = 0; i < (size_t)n * NV_GSP_LIBOS_ARG_SIZE; i++) buf[i] = 0;
+
+    for (unsigned i = 0; i < n; i++) {
+        uint8_t *e = buf + (size_t)i * NV_GSP_LIBOS_ARG_SIZE;
+        st64(e + 0,  nv_gsp_libos_id8(regions[i].name));
+        st64(e + 8,  regions[i].pa);
+        st64(e + 16, regions[i].size);
+        e[24] = (uint8_t)NV_GSP_LIBOS_KIND_CONTIGUOUS;
+        e[25] = (uint8_t)NV_GSP_LIBOS_LOC_SYSMEM;
+    }
+    *out_size = (size_t)n * NV_GSP_LIBOS_ARG_SIZE;
+    return NV_GSP_OK;
+}
+
+int nv_gsp_pte_array_fill(uint8_t *buf, size_t buflen, size_t offset,
+                          uint64_t dma_base, uint64_t region_size)
+{
+    if (!buf || region_size == 0) return NV_GSP_ERR_ARG;
+    uint64_t pages = (region_size + NV_GSP_PAGE_SIZE - 1) / NV_GSP_PAGE_SIZE;
+    if (offset + pages * 8u > buflen) return NV_GSP_ERR_BOUNDS;
+    for (uint64_t i = 0; i < pages; i++)
+        st64(buf + offset + (size_t)i * 8u, dma_base + i * NV_GSP_PAGE_SIZE);
+    return NV_GSP_OK;
+}
+
 int nv_gsp_radix3_levels(uint64_t fwimage_size, uint32_t *n2, uint32_t *lvl2_pages)
 {
     if (!n2 || !lvl2_pages || fwimage_size == 0) return NV_GSP_ERR_ARG;

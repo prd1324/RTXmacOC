@@ -136,7 +136,9 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
      heap→wpr2→non-WPR heap) + `nv_gsp_wpr_meta_build` (256-байтная `GspFwWprMeta`).
      Проверено офлайн на FB=12282 МиБ с HW-якорем FRTS (`make gsp-stage-test`): раскрой
      внутри FB, поля meta согласованы. Heap=126 МиБ (формула 535.113.01). Сверено с r535.
-   - ⏳ НЕ сделано (фаза 5-6): libos init-args + оркестрация на железе (выделить sysmem под
+   - 🟢 **фаза 5 (офлайн) 2026-06-30**: libos init-args (`nv_gsp_libos_*`) + pte-array лог-буферов
+     (`make gsp-stage-test`: id8/kind/loc/pa согласованы, сверено с OGK/r535).
+   - ⏳ НЕ сделано (фаза 6): оркестрация на железе (выделить sysmem под
      radix3/bootloader/sig/meta/libos, boot GSP-фалкона с libos-handle, Booter с реальным
      WPR-handle → `mbox0==0` → RISC-V active).
 5. **GSP-RM + очереди RPC** (`open-gpu-kernel-modules` `message_queue_priv.h`,

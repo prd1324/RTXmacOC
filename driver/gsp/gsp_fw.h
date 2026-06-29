@@ -105,6 +105,37 @@ int nv_gsp_wpr_meta_build(uint8_t *buf, size_t buflen,
                           const nv_gsp_fb_layout_t *lay,
                           const nv_gsp_wpr_meta_src_t *src);
 
+/* ===================== libos init-args (фаза 5) ===================== */
+
+/* LibosMemoryRegionInitArgument (OGK libos_init_args.h): id8@0,pa@8,size@16,
+   kind@24(u8),loc@25(u8); размер 32 (8-выровнен). kind/loc — enum. */
+#define NV_GSP_LIBOS_ARG_SIZE        32u
+#define NV_GSP_LIBOS_KIND_CONTIGUOUS 1u
+#define NV_GSP_LIBOS_LOC_SYSMEM      1u
+#define NV_GSP_LIBOS_LOG_SIZE        0x10000u  /* LOGINIT/LOGINTR/LOGRM */
+#define NV_GSP_LIBOS_ARGS_PAGE       0x1000u   /* буфер args = 1 страница */
+
+/* Регион для libos init-args (имя ≤8 символов, DMA-адрес, размер). */
+typedef struct { const char *name; uint64_t pa; uint64_t size; } nv_gsp_libos_region_t;
+
+/* id8 имени: упаковка до 8 ASCII-символов в u64 (nouveau r535_gsp_libos_id8). */
+uint64_t nv_gsp_libos_id8(const char *name);
+
+/*
+ * Собрать массив LibosMemoryRegionInitArgument в buf (по 32 байта на запись, kind=
+ * CONTIGUOUS, loc=SYSMEM). *out_size = n*32. Порт nouveau r535_gsp_libos_init.
+ */
+int nv_gsp_libos_build_args(uint8_t *buf, size_t buflen,
+                            const nv_gsp_libos_region_t *regions, unsigned n,
+                            size_t *out_size);
+
+/*
+ * Заполнить PTE-массив (u64 на каждую 4K-страницу: dma_base + i*4K) в buf, начиная
+ * с offset. Для лог-буферов libos: put-указатель@0, PTE-массив@8 (nouveau create_pte_array).
+ */
+int nv_gsp_pte_array_fill(uint8_t *buf, size_t buflen, size_t offset,
+                          uint64_t dma_base, uint64_t region_size);
+
 /* Размеры radix3 для образа размером fwimage_size:
  *   n2  = ceil(fwimage_size / 4K)          — записей в lvl2 (по странице образа);
  *   lvl2_pages = ceil(n2*8 / 4K)           — страниц под lvl2 (= записей в lvl1);
