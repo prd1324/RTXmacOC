@@ -159,3 +159,22 @@ patch_loc=30480 → pkc_data_offset=16; meta_data@836 (12б)=[1,1,3] (`TODO: ver
 
 НЕ портировано (фазы 3-6): запуск на SEC2 (regs SEC2-базы), `GspFwWprMeta`, radix3,
 libos, оркестрация boot. Источники: nova `firmware/{booter,gsp}.rs`, nouveau `r535`.
+
+## SEC2-путь Booter (задача 6, фаза 3) — ✅ HW 2026-06-29
+
+Пробный dry-load Booter на SEC2 на реальной RTX 4070S (Linux/VFIO), `tools/booter_run_linux.c`.
+WPR-handle в mbox = 0 (dummy, GSP-RM ещё не подготовлен).
+Доказательство: `docs/hw-dumps/20260629-rtx4070s-booter-sec2-dryload.log`.
+
+| Наш код | Upstream | Что | Статус |
+|---|---|---|---|
+| `NV_PSEC_FALCON_BASE`=0x840000, `_FALCON2_BASE`=0x841000 | nova `falcon/sec2.rs` BASE | база SEC2 | ✅ HW (HWCFG2=0x67b7) |
+| HsSignatureParams | nova `booter.rs` (meta_data) | fuse_ver@0, engine_id_mask@4, ucode_id@8 | ✅ {1, 1=SEC2, 3} |
+| `nv_booter_select_signature` | nova `booter.rs` | reg_fuse==0→last; иначе idx=fuse_ver-reg_fuse | ✅ HW (reg_fuse=1→idx=0) |
+| DMA-таргеты Booter (GA102+) | nova `booter.rs` FalconDmaLoadable | imem_sec{src=app0.off,dst=0,len=app0.size}; dmem{src=os_data_off,dst=0,len=os_data_size}; bootvec=app0.off | ✅ HW |
+| reset/dma_load/boot на SEC2 | reuse `falcon.c` (generic, base-параметризован) | reset_ga102/dma_load_ga102/boot с базой SEC2 | ✅ HW |
+
+Результат HW: SEC2 reset OK → dma_load OK → boot **halted**, `mbox0=0x89` (контролируемая
+ошибка Booter «нет валидной WPR meta» — ожидаема при dummy-handle). Главное: **BROM
+принял подпись** (HS-код исполнился) → reset+DMA+BROM(подпись)+boot на SEC2 работают.
+Осталось (фазы 4-6): `GspFwWprMeta`+radix3+libos+оркестрация → реальный WPR-handle → mbox0==0.

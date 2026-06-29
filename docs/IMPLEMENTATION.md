@@ -122,11 +122,14 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
 4. **Booter Loader** (порт `firmware/booter.rs`) → грузит GSP-RM в WPR2, старт RISC-V.
    - 🟢 **фундамент (фазы 1-2) сделан 2026-06-29**: шим загрузки/распаковки блобов
      `driver/gsp/fw_blob.h` + `tools/fw_blob_linux.c` (zstd); парсер контейнера
-     `driver/gsp/booter.{h,c}` (`nv_booter_parse`). Офлайн-проверено на реальных
-     `booter_load/booter_unload-535.113.01`: контейнер разобран, инварианты выполнены
-     (`make booter-parse-test`). Смещения — `PORTING-MAP.md`.
-   - ⏳ НЕ сделано (фазы 3-6): regs SEC2 + запуск Booter на SEC2; `GspFwWprMeta`;
-     radix3-маппинг GSP-RM; libos; оркестрация (boot GSP→Booter→RISC-V active).
+     `driver/gsp/booter.{h,c}` (`nv_booter_parse` + `nv_booter_select_signature`).
+     Офлайн-проверено на `booter_load/booter_unload-535.113.01`.
+   - 🟢 **фаза 3 (SEC2-путь) подтверждена на железе 2026-06-29** (`tools/booter_run_linux.c`,
+     Linux/VFIO): база SEC2 (0x840000) верна (HWCFG2=0x67b7), reset+dma_load+BROM(подпись)+boot
+     на SEC2 OK — Booter дошёл до halted, `mbox0=0x89` (ожидаемая ошибка «нет WPR meta»,
+     dummy-handle). Доказательство: `docs/hw-dumps/20260629-rtx4070s-booter-sec2-dryload.log`.
+   - ⏳ НЕ сделано (фазы 4-6): `GspFwWprMeta` + radix3-маппинг GSP-RM + libos + оркестрация
+     (boot GSP→Booter с реальным WPR-handle→`mbox0==0`→RISC-V active).
 5. **GSP-RM + очереди RPC** (`open-gpu-kernel-modules` `message_queue_priv.h`,
    nouveau `r535.c`) → первый RPC. ← **метрика слоя 2** (задача 7).
 

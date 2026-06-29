@@ -16,9 +16,13 @@
 
 #include <stdint.h>
 
-/* --- Базы движков (falcon/gsp.rs: RegisterBase<PFalconBase>/<PFalcon2Base>) --- */
+/* --- Базы движков (falcon/gsp.rs, falcon/sec2.rs: RegisterBase<PFalconBase>/<PFalcon2Base>) --- */
 #define NV_PGSP_FALCON_BASE   0x00110000u
 #define NV_PGSP_FALCON2_BASE  0x00111000u
+/* SEC2 — на нём исполняется Booter (HS-ucode). nova falcon/sec2.rs.
+   ✅ HW 2026-06-29: SEC2 HWCFG2 @0x8400f4 = 0x67b7 (не priv-фолт), reset/boot OK. */
+#define NV_PSEC_FALCON_BASE   0x00840000u
+#define NV_PSEC_FALCON2_BASE  0x00841000u
 
 /* Помощник: регистр PFALCON по базе движка и смещению. */
 #define PFALCON(base, off)   ((base) + (off))

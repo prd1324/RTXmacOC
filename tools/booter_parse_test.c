@@ -46,8 +46,8 @@ int main(int argc, char **argv)
     printf("  signatures: abs=%u size=%u → num_sig=%u (по %u байт)\n",
            d.sig_prod_abs, d.sig_prod_size, d.num_sig, NV_BOOTER_SIG_SIZE);
     printf("  patch_loc=%u (data-rel) patch_sig=%u\n", d.patch_loc, d.patch_sig);
-    printf("  meta abs=%u size=%u: [%u, %u, %u]\n",
-           d.meta_abs, d.meta_size, d.meta[0], d.meta[1], d.meta[2]);
+    printf("  sig params (meta @%u): fuse_ver=%u engine_id_mask=0x%x ucode_id=%u\n",
+           d.meta_abs, d.sig_fuse_ver, d.engine_id_mask, d.ucode_id);
     printf("=== load header v2 ===\n");
     printf("  os_code: offset=%u size=%u\n", d.os_code_offset, d.os_code_size);
     printf("  os_data: offset=%u size=%u\n", d.os_data_offset, d.os_data_size);

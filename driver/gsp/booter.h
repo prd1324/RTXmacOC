@@ -55,9 +55,12 @@ typedef struct {
     uint32_t num_sig;           /* разрешённое значение (число подписей) */
     uint32_t patch_loc;         /* data-relative: куда вставлять выбранную подпись */
     uint32_t patch_sig;         /* индекс/значение из контейнера */
-    uint32_t meta_abs;          /* абсолют: meta_data (параметры подписи) */
+    uint32_t meta_abs;          /* абсолют: meta_data (HsSignatureParams) */
     uint32_t meta_size;
-    uint32_t meta[3];           /* первые до 3 u32 meta_data (TODO: verify раскладку) */
+    /* HsSignatureParams (meta_data, 3×u32; nova firmware/booter.rs): */
+    uint32_t sig_fuse_ver;      /* @0 fuse_ver (для выбора подписи) */
+    uint32_t engine_id_mask;    /* @4 маска движков (SEC2=0x0001) */
+    uint32_t ucode_id;          /* @8 id микрокода */
 
     /* load header v2 (data-relative смещения) */
     uint32_t os_code_offset;
@@ -71,10 +74,24 @@ typedef struct {
     uint32_t pkc_data_offset;   /* = patch_loc - os_data_offset */
 } nv_booter_desc_t;
 
+/* Особое значение: 0 в HW fuse-версии → использовать последнюю подпись. */
+#define NV_BOOTER_FUSE_VERSION_USE_LAST_SIG 0u
+
 /*
  * Разобрать блоб Booter (buf/len). При успехе NV_BOOTER_OK и заполненный out.
  * Все смещения проверяются на границы len.
  */
 int nv_booter_parse(const uint8_t *buf, size_t len, nv_booter_desc_t *out);
+
+/*
+ * Выбрать индекс подписи по HW fuse-версии (nova firmware/booter.rs):
+ *   reg_fuse_version == 0  → последняя подпись (num_sig-1);
+ *   иначе                  → idx = desc->sig_fuse_ver - reg_fuse_version.
+ * reg_fuse_version читается вызывающим из HW (nv_falcon_signature_fuse_version_ga102
+ * с engine_id_mask=desc->engine_id_mask, ucode_id=desc->ucode_id).
+ * Возвращает NV_BOOTER_OK и *out_index, либо NV_BOOTER_ERR_LAYOUT при некорректной версии.
+ */
+int nv_booter_select_signature(const nv_booter_desc_t *desc, uint32_t reg_fuse_version,
+                               uint32_t *out_index);
 
 #endif /* RTXMACOC_BOOTER_H */

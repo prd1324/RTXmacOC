@@ -71,13 +71,13 @@ int nv_booter_parse(const uint8_t *buf, size_t len, nv_booter_desc_t *out)
     if ((uint64_t)out->num_sig * NV_BOOTER_SIG_SIZE != sig_prod_size)
         return NV_BOOTER_ERR_LAYOUT;
 
-    /* meta_data (параметры подписи: engine_id/ucode_id и пр. — TODO: verify). */
+    /* meta_data = HsSignatureParams (3×u32): fuse_ver@0, engine_id_mask@4, ucode_id@8. */
     out->meta_abs  = meta_off;
     out->meta_size = meta_size;
-    for (unsigned i = 0; i < 3 && (i + 1) * 4 <= meta_size; i++) {
-        if (!fits(meta_off + i * 4, 4, len)) return NV_BOOTER_ERR_BOUNDS;
-        out->meta[i] = ld32(buf + meta_off + i * 4);
-    }
+    if (meta_size < 12 || !fits(meta_off, 12, len)) return NV_BOOTER_ERR_LAYOUT;
+    out->sig_fuse_ver   = ld32(buf + meta_off + 0);
+    out->engine_id_mask = ld32(buf + meta_off + 4);
+    out->ucode_id       = ld32(buf + meta_off + 8);
 
     /* --- load header v2 --- */
     if (!fits(load_hdr_off, 20, len)) return NV_BOOTER_ERR_BOUNDS;
@@ -107,5 +107,24 @@ int nv_booter_parse(const uint8_t *buf, size_t len, nv_booter_desc_t *out)
     if (out->patch_loc < out->os_data_offset) return NV_BOOTER_ERR_LAYOUT;
     out->pkc_data_offset = out->patch_loc - out->os_data_offset;
 
+    return NV_BOOTER_OK;
+}
+
+int nv_booter_select_signature(const nv_booter_desc_t *desc, uint32_t reg_fuse_version,
+                               uint32_t *out_index)
+{
+    if (!desc || !out_index) return NV_BOOTER_ERR_ARG;
+    if (desc->num_sig == 0) return NV_BOOTER_ERR_LAYOUT; /* беззнаковый — не наш кейс */
+
+    uint32_t idx;
+    if (reg_fuse_version == NV_BOOTER_FUSE_VERSION_USE_LAST_SIG) {
+        idx = desc->num_sig - 1u;                 /* последняя подпись */
+    } else {
+        if (desc->sig_fuse_ver < reg_fuse_version) /* underflow → неверная версия */
+            return NV_BOOTER_ERR_LAYOUT;
+        idx = desc->sig_fuse_ver - reg_fuse_version;
+    }
+    if (idx >= desc->num_sig) return NV_BOOTER_ERR_LAYOUT;
+    *out_index = idx;
     return NV_BOOTER_OK;
 }

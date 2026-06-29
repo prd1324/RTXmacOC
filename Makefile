@@ -17,7 +17,7 @@ PROBE_BIN = pcie_probe
 DUMP_DIR  = docs/hw-dumps
 DATE     := $(shell date +%Y%m%d)
 
-.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test
+.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test booter-run-linux
 
 probe: $(PROBE_BIN)
 
@@ -39,6 +39,12 @@ clean:
 booter-parse-test:
 	cc -Wall -Wextra -O2 tools/booter_parse_test.c tools/fw_blob_linux.c \
 	   driver/gsp/booter.c -o tools/booter_parse_test
+
+# Пробный dry-load Booter на SEC2 через VFIO (слой 2, задача 6, фаза 3). Linux+root.
+#   make booter-run-linux && sudo ./tools/booter_run_linux
+booter-run-linux:
+	cc -Wall -Wextra -O2 tools/booter_run_linux.c tools/fw_blob_linux.c \
+	   driver/gsp/falcon.c driver/gsp/booter.c -o tools/booter_run_linux
 
 # Чтение/разбор VBIOS карты (слой 2, шаг 1). Портируемо, собирается любым cc.
 #   make vbios-dump && ./tools/vbios_dump <rom_file>

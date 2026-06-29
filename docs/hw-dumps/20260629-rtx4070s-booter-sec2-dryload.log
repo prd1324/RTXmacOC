@@ -1,0 +1,32 @@
+=== run-booter-detached 2026-06-29T19:27:45Z ===
+kernel: 6.18.36-1-MANJARO
+-- грейс 6с перед гашением экрана --
+-- stop gdm + gpu-процессы --
+-- unbind fbcon (vtcon) --
+-- unload nvidia --
+   driver of 0000:01:00.0 after unload: (none)
+   0000:01:00.0 -> vfio-pci
+   0000:01:00.1 -> vfio-pci
+=== HARNESS ===
+VFIO: устройство 0000:01:00.0, IOMMU-группа 11
+VFIO: BAR0 смаплен, size=0x1000000
+VFIO: Memory Space + Bus Master включены (CMD=0x0007)
+DMA-буфер: VA=0x7efd1a2a7000 IOVA=0x10000000 size=0x100000
+PMC_BOOT_0 = 0x194000a1
+GFW boot completed rc=0 (raw=0x000003ff)
+SEC2 HWCFG2 (@0x8400f4) = 0x000067b7
+booter_load: 55928 байт
+Booter: data_abs=888 data_size=55040 num_sig=2 engine_id_mask=0x1 ucode_id=3
+  imem_sec: src=256 len=30208 (app0); dmem: src=30464 len=24576; bootvec=256; pkc=16
+signature: reg_fuse=1 fuse_ver=1 → idx=0 @blob+60
+SEC2 reset OK
+SEC2 dma_load OK
+Booter boot: rc=0 mbox0=0x00000089 mbox1=0x00000000
+
+*** SEC2-путь Booter подтверждён: reset+dma_load+BROM+boot OK (halted). mbox0=0x00000089 (ошибка ожидаема: нет WPR meta) ***
+
+=== РЕЗУЛЬТАТ: OK (SEC2-путь Booter работает; mbox0-ошибка ожидаема) ===
+=== harness rc=0 ===
+-- [restore] вернуть GPU nvidia и поднять gdm --
+   card driver now: nvidia
+=== DONE 2026-06-29T19:28:03Z ===
