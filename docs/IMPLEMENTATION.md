@@ -128,8 +128,12 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
      Linux/VFIO): база SEC2 (0x840000) верна (HWCFG2=0x67b7), reset+dma_load+BROM(подпись)+boot
      на SEC2 OK — Booter дошёл до halted, `mbox0=0x89` (ожидаемая ошибка «нет WPR meta»,
      dummy-handle). Доказательство: `docs/hw-dumps/20260629-rtx4070s-booter-sec2-dryload.log`.
-   - ⏳ НЕ сделано (фазы 4-6): `GspFwWprMeta` + radix3-маппинг GSP-RM + libos + оркестрация
-     (boot GSP→Booter с реальным WPR-handle→`mbox0==0`→RISC-V active).
+   - 🟢 **фаза 4 ч.1 (офлайн) 2026-06-29**: `driver/gsp/elf64.{h,c}` (секция ELF по имени),
+     `driver/gsp/gsp_fw.{h,c}` — извлечение `.fwimage`/`.fwsignature_ad10x` из ELF GSP-RM,
+     разбор `RM_RISCV_UCODE_DESC` (bootloader), билдер radix3 (3×4K, u64). Проверено на
+     реальных gsp/bootloader-535.113.01 (`make gsp-stage-test`): секции/desc/radix3 согласованы.
+   - ⏳ НЕ сделано (фаза 4 ч.2 + 5-6): `GspFwWprMeta` (математика WPR2-layout из FbLayout) +
+     libos init-args + оркестрация (boot GSP→Booter с реальным WPR-handle→`mbox0==0`→RISC-V active).
 5. **GSP-RM + очереди RPC** (`open-gpu-kernel-modules` `message_queue_priv.h`,
    nouveau `r535.c`) → первый RPC. ← **метрика слоя 2** (задача 7).
 

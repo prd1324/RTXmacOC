@@ -178,3 +178,25 @@ WPR-handle в mbox = 0 (dummy, GSP-RM ещё не подготовлен).
 ошибка Booter «нет валидной WPR meta» — ожидаема при dummy-handle). Главное: **BROM
 принял подпись** (HS-код исполнился) → reset+DMA+BROM(подпись)+boot на SEC2 работают.
 Осталось (фазы 4-6): `GspFwWprMeta`+radix3+libos+оркестрация → реальный WPR-handle → mbox0==0.
+
+## Подготовка GSP-RM (задача 6, фаза 4, часть 1) — ✅ офлайн 2026-06-29
+
+Модули `driver/gsp/elf64.{h,c}` + `driver/gsp/gsp_fw.{h,c}`; офлайн-тест
+`tools/gsp_stage_test.c` (`make gsp-stage-test`) — на реальных gsp/bootloader-535.113.01.
+
+| Наш код | Upstream | Структура/смещения | Статус |
+|---|---|---|---|
+| `nv_gsp_rm_sections` | ELF64 + nouveau r535 | образ GSP-RM = ELF64; `.fwimage` (прошивка), `.fwsignature_ad10x` (подпись AD104) | ✅ .fwimage @0x40 size 0x2448000 (36 МБ), .fwsignature_ad10x @0x244a04b size 0x1000 |
+| `nv_gsp_bootloader_parse` | nouveau `nvrm/gsp.h` `RM_RISCV_UCODE_DESC` (21×u32 от header_offset bin) | version@0, bootloaderOffset@4, …, appVersion@28, manifestOffset@32/Size@36, monitorDataOffset@40/Size@44, monitorCodeOffset@48/Size@52 | ✅ code_off=18432 data_off=2048 manifest_off=0 |
+| radix3 (`nv_gsp_radix3_levels/fill`) | nouveau r535 `nvkm_gsp_radix3` | 3 уровня, 4K, u64-записи; lvl2[i]=fw+i·4K, lvl1[j]=lvl2+j·4K, lvl0[0]=lvl1; ёмкость 512·512·4K=1ГБ | ✅ n2=9288, lvl2=19 стр., lvl1=19, lvl0=1 |
+
+### GspFwWprMeta — раскладка (nouveau `nvrm/gsp.h`, для фазы 4 части 2; ещё НЕ реализовано)
+Все поля NvU64, padding до 256 байт. magic=`0xdc3aae21371a60b3`, revision=1.
+Порядок: magic@0, revision@8, sysmemAddrOfRadix3Elf@16, sizeOfRadix3Elf@24,
+sysmemAddrOfBootloader@32, sizeOfBootloader@40, bootloaderCodeOffset@48,
+bootloaderDataOffset@56, bootloaderManifestOffset@64, [union sysmemAddrOfSignature@72,
+sizeOfSignature@80], gspFwRsvdStart@88, nonWprHeapOffset@96/Size@104, gspFwWprStart@112,
+gspFwHeapOffset@120/Size@128, gspFwOffset@136, bootBinOffset@144, frtsOffset@152/Size@160,
+gspFwWprEnd@168, fbSize@176, vgaWorkspaceOffset@184/Size@192, bootCount@200,
+[union partitionRpc…/crashReport… 8-байт-выровнен], gspFwHeapVfPartitionCount(u8)+padding[7],
+verified(u64). Математика WPR2-layout (gspFwWprStart/End, heap, frts) — из FbLayout (фаза 4-2).
