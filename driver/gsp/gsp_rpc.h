@@ -83,4 +83,51 @@ int nv_gsp_rmargs_build(uint8_t *buf, size_t buflen, uint64_t shm_dma,
    shm — указатель на начало shared-региона; lay — его раскладка. */
 uint32_t nv_gsp_msgq_writeptr(const uint8_t *shm, const nv_gsp_shm_layout_t *lay);
 
+/* ============ Пре-бутовые RPC в cmdq (как r535_gsp_oneinit) ============
+ * GSP-RM при ранней инициализации ЧИТАЕТ из cmdq команды SET_SYSTEM_INFO и
+ * SET_REGISTRY и блокируется, пока их там нет. Кладём их ДО бута GSP.
+ * Источник: nouveau r535_gsp_rpc_set_system_info / set_registry,
+ * rpc_global_enums.h (535.113.01). */
+#define NV_VGPU_MSG_FUNCTION_GSP_SET_SYSTEM_INFO  72u
+#define NV_VGPU_MSG_FUNCTION_SET_REGISTRY         73u
+#define NV_VGPU_MSG_EVENT_GSP_INIT_DONE           0x1001u
+
+/* GSP_MSG_QUEUE_ELEMENT (48б): authTag[16]+aad[16]+checksum@32+sequence@36+
+   elemCount@40+pad@44, далее rpc_message_header_v03 @48 (32б), payload @80. */
+#define NV_GSP_MSG_CHECKSUM_OFF   32u
+#define NV_GSP_MSG_SEQUENCE_OFF   36u
+#define NV_GSP_MSG_ELEMCOUNT_OFF  40u
+#define NV_GSP_RPC_HDR_OFF        48u
+#define NV_GSP_RPC_HDR_SIZE       32u
+#define NV_GSP_RPC_PAYLOAD_OFF    80u   /* 48 + 32 */
+#define NV_GSP_RPC_F_LENGTH        8u   /* от NV_GSP_RPC_HDR_OFF */
+#define NV_GSP_RPC_F_FUNCTION     12u
+
+/* GspSystemInfo — 664б (gsp_static_config.h 535.113.01, sizeof проверен). */
+#define NV_GSP_SYSINFO_SIZE          664u
+#define NV_GSP_SYSINFO_GPUPHYS_OFF     0u
+#define NV_GSP_SYSINFO_FBPHYS_OFF      8u
+#define NV_GSP_SYSINFO_INSTPHYS_OFF   16u
+#define NV_GSP_SYSINFO_BDF_OFF        24u
+#define NV_GSP_SYSINFO_MAXUSERVA_OFF  56u
+#define NV_GSP_SYSINFO_MIRRORBASE_OFF 64u
+#define NV_GSP_SYSINFO_MIRRORSIZE_OFF 68u
+
+/* Заполнить GspSystemInfo (>=664б, обнуляется): BAR-физадреса GPU + PCI BDF.
+   ACPI/прочее = 0 (для базового бута достаточно). */
+void nv_gsp_build_sysinfo(uint8_t *buf, uint64_t bar0, uint64_t bar1, uint64_t bar3, uint64_t bdf);
+
+/* Заполнить PACKED_REGISTRY_TABLE (2 ключа: RMSecBusResetEnable=1,
+   RMForcePcieConfigSave=1). Возвращает длину payload (байт). */
+uint32_t nv_gsp_build_registry(uint8_t *buf, size_t buflen);
+
+/* Записать RPC-команду в cmdq: элемент в слот `slot` (страница 0x1000 от entryOff),
+   с контрольной суммой (XOR u64 ^ верх/низ). cmdq — указатель на начало cmdq-региона
+   (shm + cmdq_off). Возвращает число занятых слотов (elem_count). */
+uint32_t nv_gsp_cmdq_write(uint8_t *cmdq, uint32_t slot, uint32_t seq, uint32_t function,
+                           const uint8_t *payload, uint32_t payload_len);
+
+/* Установить cmdq.tx.writePtr (число готовых к чтению слотов). */
+void nv_gsp_cmdq_set_writeptr(uint8_t *shm, const nv_gsp_shm_layout_t *lay, uint32_t wptr);
+
 #endif /* RTXMACOC_GSP_RPC_H */

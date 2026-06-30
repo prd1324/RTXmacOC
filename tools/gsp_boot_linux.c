@@ -147,8 +147,96 @@ static int do_fwsec_frts(const nv_mmio_t *io, uint64_t frts_addr, uint64_t frts_
     return (mb==0 && set) ? 0 : -1;
 }
 
+/* Прочитать физ. BAR0/1/3 и PCI BDF-id из sysfs (для GspSystemInfo). */
+static int read_pci_bars(const char *bdf, uint64_t *bar0, uint64_t *bar1, uint64_t *bar3, uint64_t *devid)
+{
+    char p[300]; snprintf(p,sizeof(p),"/sys/bus/pci/devices/%s/resource",bdf);
+    FILE *f=fopen(p,"r"); if(!f) return -1;
+    uint64_t s[6]={0};
+    for(int i=0;i<6;i++){ unsigned long long a=0,e=0,fl=0;
+        if(fscanf(f,"%llx %llx %llx",&a,&e,&fl)!=3) break; s[i]=a; }
+    fclose(f);
+    *bar0=s[0]; *bar1=s[1]; *bar3=s[3];
+    unsigned dom=0,bus=0,dev=0,fn=0;
+    if(sscanf(bdf,"%x:%x:%x.%x",&dom,&bus,&dev,&fn)==4)
+        *devid=((uint64_t)bus<<8)|(uint64_t)(((dev&0x1f)<<3)|(fn&7));
+    else *devid=0x100;
+    return 0;
+}
+
+/* ===================== CPU-секвенсер (GSP_RUN_CPU_SEQUENCER) =====================
+ * GSP-RM шлёт список I/O-команд, которые CPU должен выполнить (спец-ресет GSP-ядра
+ * в середине init). Порт nouveau r535_gsp_msg_run_cpu_sequencer + rmgspseq.h. */
+enum { SEQ_REG_WRITE=0, SEQ_REG_MODIFY, SEQ_REG_POLL, SEQ_DELAY_US, SEQ_REG_STORE,
+       SEQ_CORE_RESET, SEQ_CORE_START, SEQ_CORE_WAIT_HALT, SEQ_CORE_RESUME };
+
+struct seq_ctx {
+    const nv_mmio_t *io; uint32_t boot0; uint64_t libos_io, meta_io, booter_io;
+    uint32_t app_version; const nv_booter_desc_t *bd;
+};
+
+static int seq_poll(const nv_mmio_t *io, uint32_t addr, uint32_t mask, uint32_t val, uint32_t usec)
+{
+    uint32_t w=0; if(!usec) usec=4000000u;
+    for(;;){ if((bar_rd(io->ctx,addr)&mask)==val) return 0;
+        if(w>=usec) return -1; bar_udelay(NULL,10); w+=10; }
+}
+
+/* CORE_RESUME (точно по nouveau): ресет GSP в RISC-V + mbox=libos + РЕСТАРТ уже
+   загруженного SEC2 Booter (без reset/reload — WPR2 уже расширен) + ожидание
+   0x1180f8 bit26 + проверки mbox0/active. */
+static int seq_core_resume(struct seq_ctx *c)
+{
+    const nv_mmio_t *io=c->io;
+    if (nv_falcon_gsp_reset_riscv(io,NV_PGSP_FALCON_BASE,NV_PGSP_FALCON2_BASE,TIMEOUT_US)!=NV_OK) return -1;
+    nv_falcon_write_mailbox0(io,NV_PGSP_FALCON_BASE,(uint32_t)c->libos_io);
+    nv_falcon_write_mailbox1(io,NV_PGSP_FALCON_BASE,(uint32_t)(c->libos_io>>32));
+    nv_falcon_start(io, NV_PSEC_FALCON_BASE);   /* nvkm_falcon_start(&sec2->falcon) */
+    if (seq_poll(io, 0x1180f8, 0x04000000, 0x04000000, 2000000)!=0){
+        printf("  CORE_RESUME: 0x1180f8 bit26 таймаут\n"); return -1; }
+    uint32_t mb0 = nv_falcon_read_mailbox0(io, NV_PSEC_FALCON_BASE);
+    if (mb0!=0){ printf("  CORE_RESUME: SEC2 mbox0=0x%08x (ожид. 0)\n",mb0); return -1; }
+    nv_falcon_write_os_version(io,NV_PGSP_FALCON_BASE,c->app_version);
+    if (!nv_falcon_riscv_active(io,NV_PGSP_FALCON2_BASE)){ printf("  CORE_RESUME: RISC-V не active\n"); return -1; }
+    return 0;
+}
+
+static int exec_cpu_sequencer(struct seq_ctx *c, const uint32_t *cb, uint32_t cmdIndex, uint32_t *regSave)
+{
+    const nv_mmio_t *io=c->io;
+    uint32_t ptr=0, nrw=0,nrp=0,ncore=0;
+    while (ptr < cmdIndex){
+        uint32_t op=cb[ptr++];
+        switch(op){
+        case SEQ_REG_WRITE: { uint32_t a=cb[ptr],v=cb[ptr+1]; ptr+=2; bar_wr(io->ctx,a,v); nrw++; } break;
+        case SEQ_REG_MODIFY:{ uint32_t a=cb[ptr],m=cb[ptr+1],v=cb[ptr+2]; ptr+=3;
+                              bar_wr(io->ctx,a,(bar_rd(io->ctx,a)&~m)|v); } break;
+        case SEQ_REG_POLL:  { uint32_t a=cb[ptr],m=cb[ptr+1],v=cb[ptr+2],to=cb[ptr+3]; ptr+=5; nrp++;
+                              if(seq_poll(io,a,m,v,to)!=0){ printf("  seq REG_POLL таймаут @0x%x\n",a); return -1; } } break;
+        case SEQ_DELAY_US:  { uint32_t u=cb[ptr]; ptr+=1; bar_udelay(NULL,u); } break;
+        case SEQ_REG_STORE: { uint32_t a=cb[ptr],idx=cb[ptr+1]; ptr+=2; if(idx<8) regSave[idx]=bar_rd(io->ctx,a); } break;
+        case SEQ_CORE_RESET:
+            ncore++;
+            if (nv_falcon_reset_ga102(io,NV_PGSP_FALCON_BASE,NV_PGSP_FALCON2_BASE,c->boot0,TIMEOUT_US)!=NV_OK) return -1;
+            { uint32_t a=NV_PGSP_FALCON_BASE+0x624; bar_wr(io->ctx,a,(bar_rd(io->ctx,a)&~0x80u)|0x80u); }
+            bar_wr(io->ctx,NV_PGSP_FALCON_BASE+0x10c,0);
+            break;
+        case SEQ_CORE_START:     ncore++; nv_falcon_start(io,NV_PGSP_FALCON_BASE); break;
+        case SEQ_CORE_WAIT_HALT: ncore++;
+            if (nv_falcon_wait_halted(io,NV_PGSP_FALCON_BASE,TIMEOUT_US)!=NV_OK){ printf("  seq CORE_WAIT_HALT таймаут\n"); return -1; }
+            break;
+        case SEQ_CORE_RESUME:    ncore++;
+            if (seq_core_resume(c)!=0) return -1;
+            break;
+        default: printf("  seq неизвестный опкод %u @%u\n",op,ptr-1); return -1;
+        }
+    }
+    printf("  seq выполнен: REG_WRITE=%u REG_POLL=%u CORE-ops=%u\n",nrw,nrp,ncore);
+    return 0;
+}
+
 /* ===================== главный прогон ===================== */
-static int run(const nv_mmio_t *io, struct arena *ar)
+static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
 {
     uint32_t boot0 = bar_rd(io->ctx,0x0);
     printf("PMC_BOOT_0 = 0x%08x\n", boot0);
@@ -207,6 +295,21 @@ static int run(const nv_mmio_t *io, struct arena *ar)
     if (nv_gsp_radix3_fill(sec.fwimage_size,lvl0_va,lvl1_va,lvl2_va,fwimg_io,lvl2_io,lvl1_io)!=NV_GSP_OK){
         fprintf(stderr,"FAIL: radix3 fill\n"); return -1; }
 
+    /* ФАКТИЧЕСКИЙ верх WPR2 после FWSEC (FWSEC клампит FRTS под VGA-workspace на ~128КБ).
+       gspFwWprEnd/frtsSize должны соответствовать реальному WPR2, иначе GSP-RM адресует
+       незащищённую память сверху и падает. */
+    uint64_t w_lo=0, w_hi=0; nv_wpr2_is_set(io,&w_lo,&w_hi);
+    uint64_t real_frts_size = (w_hi>frts_addr) ? (w_hi - frts_addr) : frts_size;
+    printf("FWSEC WPR2 факт.: [0x%llx..0x%llx] → frtsSize=0x%llx (вместо 0x%llx)\n",
+           (unsigned long long)w_lo,(unsigned long long)w_hi,
+           (unsigned long long)real_frts_size,(unsigned long long)frts_size);
+
+    /* ВАЖНО (проверено HW 2026-06-30): Booter ТРЕБУЕТ gspFwWprEnd = frts_addr + НОМИНАЛЬНЫЕ
+       0x100000 (а не фактический верх WPR2 0x2ff8e0000, куда FWSEC клампит FRTS под VGA-WS).
+       Любое иное gspFwWprEnd → Booter отвергает meta (mbox0=0x8d, RISC-V не стартует).
+       Рассинхрон meta(end)↔HW-WPR2(end) на 0x20000 штатный — его создаёт сам Booter, GSP-RM
+       к нему устойчив. Поэтому раскладка — по НОМИНАЛЬНОМУ frts_size. */
+    (void)real_frts_size; /* только для диагностики (печать выше) */
     nv_gsp_fb_layout_t lay;
     if (nv_gsp_fb_layout(vram,frts_addr,frts_size,bl.data_size,sec.fwimage_size,&lay)!=NV_GSP_OK){
         fprintf(stderr,"FAIL: fb_layout\n"); return -1; }
@@ -245,6 +348,25 @@ static int run(const nv_mmio_t *io, struct arena *ar)
            (unsigned long long)lay.wpr2_addr,(unsigned long long)lay.wpr2_end,
            (unsigned long long)lay.heap_addr,(unsigned long long)lay.elf_addr,(unsigned long long)lay.boot_addr);
 
+    /* --- 2.5: пре-бутовые RPC в cmdq (как r535_gsp_oneinit): SET_SYSTEM_INFO + SET_REGISTRY.
+       GSP-RM при ранней инициализации читает их из cmdq и блокируется без них. --- */
+    {
+        uint64_t bar0=0,bar1=0,bar3=0,devid=0x100;
+        if (read_pci_bars(bdf,&bar0,&bar1,&bar3,&devid)!=0)
+            fprintf(stderr,"WARN: не прочитал BAR из sysfs — sysinfo с нулями\n");
+        uint8_t *cmdq = shm_va + shm_lay.cmdq_off;
+        uint8_t sysinfo[NV_GSP_SYSINFO_SIZE];
+        nv_gsp_build_sysinfo(sysinfo,bar0,bar1,bar3,devid);
+        uint8_t reg[256]; uint32_t reglen = nv_gsp_build_registry(reg,sizeof(reg));
+        uint32_t s0 = nv_gsp_cmdq_write(cmdq,0,0,NV_VGPU_MSG_FUNCTION_GSP_SET_SYSTEM_INFO,sysinfo,NV_GSP_SYSINFO_SIZE);
+        uint32_t s1 = nv_gsp_cmdq_write(cmdq,s0,1,NV_VGPU_MSG_FUNCTION_SET_REGISTRY,reg,reglen);
+        nv_gsp_cmdq_set_writeptr(shm_va,&shm_lay,s0+s1);
+        printf("cmdq: SET_SYSTEM_INFO(слоты 0..%u) + SET_REGISTRY(слот %u) writePtr=%u; "
+               "bar0=0x%llx bar1=0x%llx bar3=0x%llx bdf=0x%llx reglen=%u\n",
+               s0-1,s0,s0+s1,(unsigned long long)bar0,(unsigned long long)bar1,
+               (unsigned long long)bar3,(unsigned long long)devid,reglen);
+    }
+
     /* --- 3. reset GSP в RISC-V, GSP mailbox = libos --- */
     if (nv_falcon_gsp_reset_riscv(io,NV_PGSP_FALCON_BASE,NV_PGSP_FALCON2_BASE,TIMEOUT_US)!=NV_OK){
         fprintf(stderr,"FAIL: GSP reset(RISC-V)\n"); return -1; }
@@ -274,6 +396,20 @@ static int run(const nv_mmio_t *io, struct arena *ar)
     uint32_t mb1=nv_falcon_read_mailbox1(io,NV_PSEC_FALCON_BASE);
     printf("Booter: rc=%d mbox0=0x%08x mbox1=0x%08x (WprMeta=0x%llx)\n",brc,mb0,mb1,(unsigned long long)meta_io);
 
+    /* ДИАГ: расширил ли Booter WPR2 на полный регион GSP-RM? */
+    {
+        uint64_t wlo=0,whi=0; int ws=nv_wpr2_is_set(io,&wlo,&whi);
+        printf("ДИАГ WPR2 после Booter: set=%d [0x%llx..0x%llx] (ожид. 0x%llx..0x%llx)\n",
+               ws,(unsigned long long)wlo,(unsigned long long)whi,
+               (unsigned long long)lay.wpr2_addr,(unsigned long long)lay.wpr2_end);
+        /* RISC-V статус-регистры (поиск фолта/исключения) PFALCON2 GSP */
+        printf("ДИАГ GSP PRISCV:");
+        uint32_t roff[]={0x388,0x100,0x104,0x108,0x10c,0x110,0x120,0x130,0x388,0x668,0x800,0x804};
+        for (unsigned k=0;k<sizeof(roff)/sizeof(roff[0]);k++)
+            printf(" [+0x%x]=0x%08x", roff[k], bar_rd(io->ctx, NV_PGSP_FALCON2_BASE+roff[k]));
+        printf("\n");
+    }
+
     /* --- 5. FALCON_OS = app_version; проверка RISC-V active --- */
     nv_falcon_write_os_version(io,NV_PGSP_FALCON_BASE,bl.app_version);
     int active=0;
@@ -281,18 +417,49 @@ static int run(const nv_mmio_t *io, struct arena *ar)
     uint32_t rv=bar_rd(io->ctx,NV_PGSP_FALCON2_BASE+NV_PRISCV_RISCV_CPUCTL_OFF);
     printf("GSP RISC-V: active=%d (CPUCTL=0x%08x)\n",active,rv);
 
-    /* --- задача 7: ждём ответа GSP-RM в status-очереди (событие GSP_INIT_DONE) --- */
-    uint32_t wptr=0; int got=0;
-    for (int i=0;i<6000 && active;i++){ wptr=nv_gsp_msgq_writeptr(shm_va,&shm_lay); if(wptr){got=1;break;} bar_udelay(NULL,5000); }
-    uint32_t sig=0,fn=0,len=0;
-    if (got){
-        const uint8_t *e=shm_va+shm_lay.msgq_off+NV_GSP_QUEUE_ENTRYOFF; /* запись [0] */
-        const uint8_t *r=e+NV_GSP_MSG_ELEM_HDR_SIZE;
-        sig=r[4]|(r[5]<<8)|(r[6]<<16)|((uint32_t)r[7]<<24);
-        len=r[8]|(r[9]<<8)|(r[10]<<16)|((uint32_t)r[11]<<24);
-        fn =r[12]|(r[13]<<8)|(r[14]<<16)|((uint32_t)r[15]<<24);
-        printf("GSP RPC: msgq.writePtr=%u rpc.signature=0x%08x len=%u function=0x%08x\n",wptr,sig,len,fn);
-    } else printf("GSP RPC: msgq.writePtr=0 — GSP не записал сообщение за ~10с\n");
+    /* Дверной звонок GSP (falcon+0xc00=0): уведомить, что в cmdq есть команды
+       (SET_SYSTEM_INFO/SET_REGISTRY). Как nvkm_falcon_wr32(&gsp->falcon,0xc00,0). */
+    bar_wr(io->ctx, NV_PGSP_FALCON_BASE + 0xc00, 0);
+
+    /* --- задача 7: дренируем msgq до события GSP_INIT_DONE (0x1001) ---
+       GSP-RM шлёт поток событий; читаем каждое, двигаем readPtr (consume), ищем INIT_DONE. */
+    uint32_t rptr=0, last_fn=0, sig=0, msgs=0, len=0; int got=0;
+    for (int i=0;i<8000 && active && !got;i++){
+        uint32_t wptr=nv_gsp_msgq_writeptr(shm_va,&shm_lay);
+        while (rptr != wptr){
+            const uint8_t *e=shm_va+shm_lay.msgq_off+NV_GSP_QUEUE_ENTRYOFF+(size_t)rptr*NV_GSP_QUEUE_MSGSIZE;
+            uint32_t ec=*(const volatile uint32_t*)(e+NV_GSP_MSG_ELEMCOUNT_OFF);
+            if(!ec||ec>shm_lay.msg_count) ec=1;
+            const uint8_t *r=e+NV_GSP_MSG_ELEM_HDR_SIZE;
+            sig=r[4]|(r[5]<<8)|(r[6]<<16)|((uint32_t)r[7]<<24);
+            len=r[8]|(r[9]<<8)|(r[10]<<16)|((uint32_t)r[11]<<24);
+            last_fn=r[12]|(r[13]<<8)|(r[14]<<16)|((uint32_t)r[15]<<24);
+            msgs++;
+            printf("GSP msg #%u @slot%u: sig=0x%08x function=0x%04x len=%u ec=%u%s\n",
+                   msgs,rptr,sig,last_fn,len,ec,
+                   last_fn==NV_VGPU_MSG_EVENT_GSP_INIT_DONE?"  <== GSP_INIT_DONE":"");
+            /* GSP_RUN_CPU_SEQUENCER (0x1002): выполнить I/O-команды и перезапустить GSP-ядро */
+            if (last_fn==0x1002u){
+                uint8_t *pl=(uint8_t*)e+NV_GSP_RPC_PAYLOAD_OFF;
+                uint32_t cmdIndex=*(uint32_t*)(pl+4);
+                uint32_t *regSave=(uint32_t*)(pl+8);
+                const uint32_t *cbuf=(const uint32_t*)(pl+40);
+                struct seq_ctx sc={io,boot0,libos_io,meta_io,booter_io,bl.app_version,&bd};
+                printf("  → выполняю CPU-секвенсер (cmdIndex=%u)...\n",cmdIndex);
+                int sr=exec_cpu_sequencer(&sc,cbuf,cmdIndex,regSave);
+                printf("  CPU-секвенсер: %s\n",sr==0?"OK — GSP-RM возобновлён":"FAIL");
+            }
+            rptr+=ec; while(rptr>=shm_lay.msg_count) rptr-=shm_lay.msg_count;
+            *(volatile uint32_t*)(shm_va+shm_lay.msgq_off+NV_GSP_MSGQ_RXHDROFF)=rptr; /* consume */
+            if (last_fn==NV_VGPU_MSG_EVENT_GSP_INIT_DONE){ got=1; break; }
+        }
+        if((i%200)==199) bar_wr(io->ctx, NV_PGSP_FALCON_BASE + 0xc00, 0); /* периодич. звонок */
+        bar_udelay(NULL,5000);
+    }
+    uint32_t fn=last_fn;
+    if (got) printf("GSP RPC: ★ GSP_INIT_DONE получен после %u сообщений ★\n",msgs);
+    else if (msgs) printf("GSP RPC: GSP жив (%u сообщений, последнее function=0x%04x sig=0x%08x), INIT_DONE НЕ пришёл\n",msgs,last_fn,sig);
+    else printf("GSP RPC: msgq пуст — GSP не записал сообщение\n");
 
     /* --- диагностика: тронул ли GSP очереди/логи --- */
     {
@@ -306,9 +473,13 @@ static int run(const nv_mmio_t *io, struct arena *ar)
         const char *names[3] = {"LOGINIT","LOGINTR","LOGRM"};
         const char *files[3] = {"/tmp/gsp-loginit.bin","/tmp/gsp-logintr.bin","/tmp/gsp-logrm.bin"};
         uint8_t *logs[3] = {loginit_va, logintr_va, logrm_va};
+        uint64_t put0[3];
+        for (int k = 0; k < 3; k++) put0[k] = *(volatile uint64_t*)logs[k];
+        bar_udelay(NULL, 2000000); /* 2с: растёт ли лог? (фолт-луп vs заморозка) */
         for (int k = 0; k < 3; k++) {
             uint64_t put = *(volatile uint64_t*)logs[k]; /* put-указатель @0 */
-            printf("ДИАГ: %-8s put=0x%llx\n", names[k], (unsigned long long)put);
+            printf("ДИАГ: %-8s put=0x%llx (за 2с Δ=%lld)\n", names[k],
+                   (unsigned long long)put, (long long)(put - put0[k]));
             FILE *df = fopen(files[k], "wb");
             if (df) { fwrite(logs[k], 1, NV_GSP_LIBOS_LOG_SIZE, df); fclose(df); }
         }
@@ -356,9 +527,17 @@ int main(int argc, char **argv)
     if (abuf==MAP_FAILED){perror("mmap arena");vfio_close(&v);return 1;}
     if (vfio_map(&v,abuf,ARENA_IOVA,ARENA_SIZE)){munmap(abuf,ARENA_SIZE);vfio_close(&v);return 1;}
     printf("DMA-арена: VA=%p IOVA=0x%llx size=0x%x\n",abuf,(unsigned long long)ARENA_IOVA,ARENA_SIZE);
+
+    /* Заглушка на низкие IOVA [0..16МиБ]: под нативным nouveau стоит iommu=pt (passthrough),
+       и GSP-RM безвредно читает нулевые/низкие адреса; под VFIO (строгий IOMMU) это DMAR-фолт.
+       Маппим зануленный регион, чтобы такие чтения не падали. */
+    void *zbuf=mmap(NULL,0x1000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    if (zbuf!=MAP_FAILED){ memset(zbuf,0,0x1000000);
+        if (vfio_map(&v,zbuf,0x0,0x1000000)==0) printf("Заглушка IOVA[0..0x1000000] смаплена\n");
+        else printf("WARN: не удалось замапить IOVA 0 (зарезервирован?)\n"); }
     struct arena ar={.va=abuf,.iova=ARENA_IOVA,.off=0,.cap=ARENA_SIZE};
     nv_mmio_t io={.ctx=(void*)v.bar0,.rd=bar_rd,.wr=bar_wr,.udelay=bar_udelay};
-    int rc=run(&io,&ar);
+    int rc=run(&io,&ar,bdf);
     struct vfio_iommu_type1_dma_unmap u={.argsz=sizeof(u),.iova=ARENA_IOVA,.size=ARENA_SIZE};
     ioctl(v.container,VFIO_IOMMU_UNMAP_DMA,&u); munmap(abuf,ARENA_SIZE); vfio_close(&v);
     printf("\n=== РЕЗУЛЬТАТ: %s ===\n", rc==0?"OK (GSP-RM загружен, RISC-V active)":"FAIL (см. лог)");
