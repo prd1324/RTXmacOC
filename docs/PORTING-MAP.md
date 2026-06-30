@@ -233,3 +233,27 @@ WPR-handle=meta DMA → mbox0==0 → RISC-V active).
 Все офлайн-кирпичи фазы 4-5 готовы. Остаётся фаза 6 (HW): оркестратор — выделить
 sysmem (VFIO) под radix3(lvl0/1/2)+bootloader+signature+WprMeta+libos+логи, разместить,
 boot GSP-фалкона с libos-handle, SEC2 Booter с WPR-handle=WprMeta DMA → mbox0==0 → RISC-V active.
+
+## Полная загрузка GSP-RM (задача 6, фаза 6) — ✅ HW 2026-06-30 — МЕТРИКА ДОСТИГНУТА
+
+Оркестратор `tools/gsp_boot_linux.c` на реальной RTX 4070S (Linux/VFIO). Полная цепочка
+слоя 2 за один прогон. Доказательство: `docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log`.
+
+Последовательность (порт nouveau r535_gsp_oneinit + r535_gsp_init, путь SEC2/Ada):
+1. FWSEC-FRTS → WPR2 (reuse) — `mbox0=0`, WPR2 set;
+2. staging в sysmem (DMA-арена): .fwimage + radix3(lvl0/1/2) + bootloader + signature(.fwsignature_ad10x) + GspFwWprMeta + libos(+LOGINIT/INTR/RM, RMARGS);
+3. `nv_falcon_gsp_reset_riscv` (reset_eng + BCR_CTRL|=0x111 RISC-V) → GSP mailbox0/1 = libos-адрес;
+4. SEC2 Booter с mbox0/1 = WprMeta-адрес → Booter грузит GSP-RM в WPR2 и стартует RISC-V;
+5. FALCON_OS=app_version; проверка RISC-V active.
+
+| Наш код | Upstream | Что | Статус |
+|---|---|---|---|
+| `nv_falcon_gsp_reset_riscv` | nouveau `ga102_gsp_reset` | reset_eng + BCR_CTRL(0x111668)\|=0x111 (RISC-V core) | ✅ HW |
+| `nv_falcon_riscv_active` | nouveau `riscv_active` | CPUCTL(PFALCON2+0x388) active_stat=bit7 | ✅ HW (CPUCTL=0x80) |
+| GSP mbox=libos | nouveau wr 0x040/0x044 | MAILBOX0/1 GSP = libos DMA addr | ✅ HW |
+| Booter mbox=WprMeta | nouveau `r535_gsp_booter_load` | SEC2 mbox0/1 = wpr_meta.addr | ✅ HW (mbox0=0!) |
+| `nv_falcon_write_os_version` | nouveau wr 0x080 | FALCON_OS = app_version | ✅ HW |
+
+**Результат HW:** FWSEC `mbox0=0`/WPR2 set; Booter `mbox0=0` (с реальным WprMeta — vs 0x89 на
+dummy в фазе 3); GSP RISC-V `active=1`. Метрика задачи 6 (Booter mbox0==0 И RISC-V active)
+ДОСТИГНУТА. Осталось: задача 7 (очереди RPC sysmem + первый handshake = «GSP ответил»).

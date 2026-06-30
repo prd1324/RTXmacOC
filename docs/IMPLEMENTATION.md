@@ -138,11 +138,16 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
      внутри FB, поля meta согласованы. Heap=126 МиБ (формула 535.113.01). Сверено с r535.
    - 🟢 **фаза 5 (офлайн) 2026-06-30**: libos init-args (`nv_gsp_libos_*`) + pte-array лог-буферов
      (`make gsp-stage-test`: id8/kind/loc/pa согласованы, сверено с OGK/r535).
-   - ⏳ НЕ сделано (фаза 6): оркестрация на железе (выделить sysmem под
-     radix3/bootloader/sig/meta/libos, boot GSP-фалкона с libos-handle, Booter с реальным
-     WPR-handle → `mbox0==0` → RISC-V active).
-5. **GSP-RM + очереди RPC** (`open-gpu-kernel-modules` `message_queue_priv.h`,
-   nouveau `r535.c`) → первый RPC. ← **метрика слоя 2** (задача 7).
+   - 🟢🟢 **фаза 6 ПОДТВЕРЖДЕНА НА ЖЕЛЕЗЕ 2026-06-30 — МЕТРИКА ЗАДАЧИ 6 ДОСТИГНУТА**:
+     оркестратор `tools/gsp_boot_linux.c` (Linux/VFIO) за один прогон: FWSEC-FRTS→WPR2 →
+     staging GSP-RM (fwimage+radix3+bootloader+signature+WprMeta+libos) → reset GSP в RISC-V +
+     GSP mbox=libos → SEC2 Booter с WprMeta → **Booter mbox0=0** → FALCON_OS=app_version →
+     **GSP RISC-V active=1** (CPUCTL=0x80). GSP-RM реально исполняется на карте.
+     Доказательство: `docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log`. Новые falcon-помощники:
+     `nv_falcon_gsp_reset_riscv`, `nv_falcon_riscv_active`, `nv_falcon_write_os_version`.
+5. **GSP-RM + очереди RPC** — задача 7: command/status очереди в sysmem (порт
+   `message_queue_priv.h`, nouveau `r535.c`), первый RPC `GSP_INIT_DONE` = «GSP ответил».
+   ← **финальная метрика слоя 2**. (Booter уже стартовал RISC-V — осталась только RPC-обвязка.)
 
 ---
 

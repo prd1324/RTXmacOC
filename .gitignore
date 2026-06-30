@@ -17,6 +17,9 @@ tools/fwsec-DONE
 tools/booter_run_linux
 tools/booter-run.log
 tools/booter-DONE
+tools/gsp_boot_linux
+tools/gsp-boot.log
+tools/gsp-boot-DONE
 # дампы проприетарной прошивки NVIDIA (VBIOS/PROM) — не коммитить (лицензия, правило 7)
 docs/hw-dumps/*.bin
 

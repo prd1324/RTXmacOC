@@ -35,7 +35,7 @@ WPR2 в VRAM (`mbox0=0`, `WPR2 set=1`, лог в [docs/hw-dumps/](docs/hw-dumps/
 | # | Слой | Статус |
 |---|------|--------|
 | 1 | **PCIe bring-up** — найти карту, смапить BAR0, прочитать chip ID (`PMC_BOOT_0`) | 🟢 декод подтверждён на железе (kext-загрузка ждёт macOS) |
-| 2 | **GSP bring-up** — поднять GPU через GSP, наладить RPC | 🟢 FWSEC-FRTS→WPR2 подтверждён на железе (Linux/VFIO); Booter+RPC ещё не начаты |
+| 2 | **GSP bring-up** — поднять GPU через GSP, наладить RPC | 🟢 **GSP-RM загружен на железе** (Linux/VFIO): FWSEC-FRTS→WPR2→Booter→GSP RISC-V active. Осталось RPC-handshake |
 | 3 | Memory management (GMMU/VRAM) | ⏳ |
 | 4 | Command submission (каналы) | ⏳ |
 | 5 | **Display / modeset** — вывод изображения | ⛔ заблокирован моделью Apple (см. выше) |
@@ -51,9 +51,10 @@ WPR2 в VRAM (`mbox0=0`, `WPR2 set=1`, лог в [docs/hw-dumps/](docs/hw-dumps/
   0x194000A1` → Ada AD104, chipset `0x194`, rev `0xA1` (Windows/RW-Everything,
   [docs/hw-dumps/](docs/hw-dumps/)). Это первый результат, проверенный железом.
 
-**Слой 2** — 🟢 **подтверждён на железе** (RTX 4070 Super, Linux/VFIO, 2026-06-29):
-FWSEC-FRTS отработал, `mbox0=0`, `WPR2 set=1 [0x2ff800000..0x2ff8e0000]`
-([docs/hw-dumps/20260629-rtx4070s-fwsec-frts-linux-OK.log](docs/hw-dumps/)).
+**Слой 2** — 🟢 **GSP-RM загружен на железе** (RTX 4070 Super, Linux/VFIO, 2026-06-30):
+полная цепочка `tools/gsp_boot_linux.c` за прогон — FWSEC-FRTS→WPR2, SEC2 Booter `mbox0=0`,
+**GSP RISC-V active** ([docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log](docs/hw-dumps/)).
+Раньше (2026-06-29) подтверждён FWSEC-FRTS отдельно (`...-fwsec-frts-linux-OK.log`).
 - `driver/gsp/{falcon,fwsec_patch,fwsec_locate,fb_layout}.*`, `falcon_regs.h` —
   примитивы Falcon (reset/DMA-load/boot), локатор и патч FWSEC, поиск региона FRTS.
   Сверены с nova-core, **проверены на железе**.

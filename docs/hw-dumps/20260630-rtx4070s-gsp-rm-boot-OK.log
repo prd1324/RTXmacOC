@@ -1,0 +1,30 @@
+=== run-gsp-boot-detached 2026-06-30T10:23:14Z ===
+kernel: 6.18.36-1-MANJARO
+-- грейс 6с перед гашением экрана --
+-- stop gdm + gpu-процессы --
+ 83865 83865 83865 83865-- unbind fbcon (vtcon) --
+-- unload nvidia --
+   driver of 0000:01:00.0 after unload: (none)
+   0000:01:00.0 -> vfio-pci
+   0000:01:00.1 -> vfio-pci
+=== HARNESS ===
+VFIO: 0000:01:00.0, группа 11
+VFIO: BAR0 size=0x1000000
+VFIO: BusMaster (CMD=0x0007)
+DMA-арена: VA=0x7f927e200000 IOVA=0x10000000 size=0x4000000
+PMC_BOOT_0 = 0x194000a1
+VRAM=12282 МиБ; FRTS=0x2ff800000 sz=0x100000
+FWSEC-FRTS: mbox0=0x00000000 WPR2 set=1 [0x2ff800000..0x2ff8e0000]
+staging: fwimage@0x10200000 radix3-lvl0@0x1265c000 bl@0x1265d000 sig@0x12665000 meta@0x12666000 libos@0x12667000
+WPR2: start=0x2f5400000 end=0x2ff900000 heap=0x2f5500000 elf=0x2fd3b0000 boot=0x2ff7f8000
+GSP reset(RISC-V) OK; GSP mbox=libos 0x12667000
+Booter: rc=0 mbox0=0x00000000 mbox1=0x00000000 (WprMeta=0x12666000)
+GSP RISC-V: active=1 (CPUCTL=0x00000080)
+
+*** GSP-RM ЗАГРУЖЕН: Booter mbox0=0 И GSP RISC-V active — метрика задачи 6 достигнута ***
+
+=== РЕЗУЛЬТАТ: OK (GSP-RM загружен, RISC-V active) ===
+=== harness rc=0 ===
+-- [restore] вернуть GPU nvidia и поднять gdm --
+   card driver now: nvidia
+=== DONE 2026-06-30T10:23:38Z ===

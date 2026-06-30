@@ -25,7 +25,7 @@ WindowServer: (1) library validation не пускает чужой Metal-бан
 | Слой | Что | Статус |
 |---|---|---|
 | 1 PCIe bring-up | найти карту, BAR0, `PMC_BOOT_0` | 🟢 декод подтверждён железом; kext-загрузка ждёт стенда |
-| 2 GSP bring-up | FWSEC-FRTS→WPR2→Booter→GSP-RM→RPC | 🟢 FWSEC-FRTS **ПОДТВЕРЖДЁН НА ЖЕЛЕЗЕ 2026-06-29** (RTX 4070S, Linux/VFIO): mbox0=0 И WPR2 set=1 [0x2ff800000..0x2ff8e0000]. Доказательство: `docs/hw-dumps/20260629-rtx4070s-fwsec-frts-linux-OK.log`. Booter+RPC — НЕ начаты. macOS-kext-шим всё ещё 🟡 |
+| 2 GSP bring-up | FWSEC-FRTS→WPR2→Booter→GSP-RM→RPC | 🟢 **GSP-RM ЗАГРУЖЕН НА ЖЕЛЕЗЕ 2026-06-30** (RTX 4070S, Linux/VFIO): FWSEC-FRTS→WPR2, SEC2 Booter mbox0=0, **GSP RISC-V active=1**. Метрика задачи 6 достигнута. Доказательство: `docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log`. Осталось: RPC-handshake (задача 7). macOS-kext-шим всё ещё 🟡 |
 | 3 память (GMMU) | VRAM через RPC | ⏳ |
 | 4 каналы | command submission | ⏳ |
 | 5 дисплей | IOFramebuffer/WindowServer | ⛔ замок Apple |

@@ -22,8 +22,8 @@
 1. **PCIe bring-up** — найти карту, смапить BAR0, прочитать `PMC_BOOT_0`.
    🟡 код есть и компилируется в CI; **на железе не запускался**.
 2. **GSP bring-up** — поднять GPU через GSP, наладить RPC. 🔨 текущий фокус.
-   FWSEC-FRTS→WPR2 — 🟢 подтверждён на железе (2026-06-29, Linux/VFIO). Дальше:
-   Booter→GSP-RM→RPC (задачи 6–7, ещё не начаты). План: `docs/gsp-bringup-notes.md`.
+   FWSEC-FRTS→WPR2→Booter→**GSP-RM (RISC-V active)** — 🟢 подтверждён на железе
+   (2026-06-30, Linux/VFIO). Осталось: RPC-handshake (задача 7). План: `docs/gsp-bringup-notes.md`.
 3. Memory management (GMMU/VRAM).
 4. Command submission (каналы).
 5. Display / modeset — **вывод картинки**. Конечная видимая цель.
@@ -112,13 +112,13 @@ docs/                   архитектура, роадмап, конспект
   BAR0=`0x52000000`, `PMC_BOOT_0=0x194000A1` (Ada AD104, rev A1), адреса WPR2-регистров.
   См. `docs/hw-dumps/`.
 - Слой 1: 🟢 декод подтверждён железом; загрузка НАШего kext на macOS — ждёт стенда.
-- Слой 2: 🟢 **FWSEC-FRTS ПОДТВЕРЖДЁН НА ЖЕЛЕЗЕ 2026-06-29** (RTX 4070S, Linux/VFIO):
-  `mbox0=0` И `WPR2 set=1 [0x2ff800000..0x2ff8e0000]`. Доказательство:
-  `docs/hw-dumps/20260629-rtx4070s-fwsec-frts-linux-OK.log`. Портируемая логика
-  `driver/gsp/{falcon,fwsec_patch,fwsec_locate,fb_layout}.*` теперь 🟢. На железе нашли
-  2 бага (GFW-wait после FLR; сигнатура образа `0x4E56`) — исправлены, см. PORTING-MAP
-  «аудит 2026-06-29». macOS-kext-шим `driver/RTXProbe/FwsecRun.*` всё ещё 🟡 (на macOS
-  не прогонялся; GFW-wait в него добавлен). НЕ начаты: Booter (задача 6), RPC (задача 7).
+- Слой 2: 🟢 **GSP-RM ЗАГРУЖЕН НА ЖЕЛЕЗЕ 2026-06-30** (RTX 4070S, Linux/VFIO).
+  Полная цепочка за прогон (`tools/gsp_boot_linux.c`): FWSEC-FRTS→WPR2 → staging GSP-RM
+  (fwimage+radix3+bootloader+signature+WprMeta+libos) → SEC2 Booter `mbox0=0` → **GSP
+  RISC-V active=1**. Метрика задачи 6 достигнута. Доказательство:
+  `docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log`. Портируемая логика `driver/gsp/*`
+  (falcon, fwsec_*, fb_layout, booter, gsp_fw, elf64, fw_blob) — 🟢. Осталось: задача 7
+  (очереди RPC → первый handshake = «GSP ответил»). macOS-kext-шим `FwsecRun.*` всё ещё 🟡.
 - Спека: `.kiro/specs/rtx-tahoe-full-support/` (requirements/design/tasks).
 - Прогон без ребута/монитора: `tools/run-fwsec-detached.sh` (Linux/VFIO, возвращает GUI).
 - Открытое решение ЗАКРЫТО (выбран A, выполнен). Дальше: задача 6 (Booter→GSP-RM).

@@ -128,4 +128,20 @@ uint32_t nv_gfw_boot_raw(const nv_mmio_t *io);
  */
 int nv_wait_gfw_boot_completed(const nv_mmio_t *io, uint32_t timeout_us);
 
+/* --- GSP RISC-V (для загрузки GSP-RM, фаза 6) --- */
+
+/*
+ * Reset GSP-фалкона в RISC-V режим (nouveau ga102_gsp_reset): reset_eng + ожидание
+ * скраба, затем BCR_CTRL (PFALCON2+0x668) |= 0x111 (valid + core_select=RISC-V +
+ * br_fetch). В отличие от nv_falcon_reset_ga102 (выбирает Falcon-ядро для HS-ucode).
+ */
+int nv_falcon_gsp_reset_riscv(const nv_mmio_t *io, uint32_t base, uint32_t falcon2_base,
+                              uint32_t timeout_us);
+
+/* RISC-V активен? CPUCTL (PFALCON2+0x388) active_stat=bit7 (nouveau riscv_active). */
+int nv_falcon_riscv_active(const nv_mmio_t *io, uint32_t falcon2_base);
+
+/* Записать версию ОС (FALCON_OS=0x080) — app_version GSP-bootloader. */
+void nv_falcon_write_os_version(const nv_mmio_t *io, uint32_t base, uint32_t app_version);
+
 #endif /* RTXMACOC_FALCON_H */

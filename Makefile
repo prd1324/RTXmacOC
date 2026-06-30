@@ -17,7 +17,7 @@ PROBE_BIN = pcie_probe
 DUMP_DIR  = docs/hw-dumps
 DATE     := $(shell date +%Y%m%d)
 
-.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test booter-run-linux gsp-stage-test
+.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test booter-run-linux gsp-stage-test gsp-boot-linux
 
 probe: $(PROBE_BIN)
 
@@ -51,6 +51,14 @@ booter-run-linux:
 gsp-stage-test:
 	cc -Wall -Wextra -O2 tools/gsp_stage_test.c tools/fw_blob_linux.c \
 	   driver/gsp/gsp_fw.c driver/gsp/elf64.c -o tools/gsp_stage_test
+
+# Оркестратор загрузки GSP-RM на железе (слой 2, задача 6, фаза 6). Linux+root.
+#   make gsp-boot-linux && sudo ./tools/gsp_boot_linux   (прогон: tools/run-gsp-boot-detached.sh)
+gsp-boot-linux:
+	cc -Wall -Wextra -O2 tools/gsp_boot_linux.c tools/fw_blob_linux.c \
+	   driver/gsp/falcon.c driver/gsp/fwsec_locate.c driver/gsp/fwsec_patch.c \
+	   driver/gsp/fb_layout.c driver/gsp/booter.c driver/gsp/gsp_fw.c driver/gsp/elf64.c \
+	   -o tools/gsp_boot_linux
 
 # Чтение/разбор VBIOS карты (слой 2, шаг 1). Портируемо, собирается любым cc.
 #   make vbios-dump && ./tools/vbios_dump <rom_file>

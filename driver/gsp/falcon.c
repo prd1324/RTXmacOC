@@ -274,6 +274,32 @@ uint32_t nv_gfw_boot_raw(const nv_mmio_t *io)
     return rd(io, NV_PGC6_AON_SECURE_SCRATCH_GROUP_05_0_GFW_BOOT);
 }
 
+/* ===================== GSP RISC-V ===================== */
+
+int nv_falcon_gsp_reset_riscv(const nv_mmio_t *io, uint32_t base, uint32_t falcon2_base,
+                              uint32_t timeout_us)
+{
+    /* reset_eng: сброс движка + ожидание скраба памяти. */
+    nv_falcon_reset_engine(io, base);
+    int rc = nv_falcon_wait_mem_scrubbing(io, base, timeout_us);
+    if (rc != NV_OK) return rc;
+    /* BCR_CTRL |= 0x111 — выбрать RISC-V ядро (ga102_gsp_reset: mask 0x1668,0x111). */
+    uint32_t bcr = PFALCON(falcon2_base, NV_PRISCV_RISCV_BCR_CTRL_OFF);
+    wr(io, bcr, (rd(io, bcr) & ~0x111u) | 0x111u);
+    return NV_OK;
+}
+
+int nv_falcon_riscv_active(const nv_mmio_t *io, uint32_t falcon2_base)
+{
+    uint32_t v = rd(io, PFALCON(falcon2_base, NV_PRISCV_RISCV_CPUCTL_OFF));
+    return (v & (1u << 7)) != 0; /* active_stat = bit7 */
+}
+
+void nv_falcon_write_os_version(const nv_mmio_t *io, uint32_t base, uint32_t app_version)
+{
+    wr(io, PFALCON(base, NV_PFALCON_FALCON_OS_OFF), app_version);
+}
+
 int nv_wait_gfw_boot_completed(const nv_mmio_t *io, uint32_t timeout_us)
 {
     uint32_t waited = 0;
