@@ -21,15 +21,16 @@
 
 1. **PCIe bring-up** — найти карту, смапить BAR0, прочитать `PMC_BOOT_0`.
    🟡 код есть и компилируется в CI; **на железе не запускался**.
-2. **GSP bring-up** — поднять GPU через GSP, наладить RPC. 🔨 текущий фокус.
-   FWSEC-FRTS→WPR2→Booter→**GSP-RM (RISC-V active)** — 🟢 подтверждён на железе
-   (2026-06-30, Linux/VFIO). Осталось: RPC-handshake (задача 7). План: `docs/gsp-bringup-notes.md`.
-3. Memory management (GMMU/VRAM).
+2. **GSP bring-up** — поднять GPU через GSP, наладить RPC. 🟢 **ЗАВЕРШЁН на железе**
+   (2026-06-30, Linux/VFIO): FWSEC-FRTS→WPR2→Booter→GSP RISC-V active → **`GSP_INIT_DONE`
+   по RPC** (задачи 6 И 7). Полная тех-запись: **`docs/gsp-bringup-layer2.md`** (читать,
+   если что-то по слою 2 регрессует — там все смещения структур, опкоды, грабли).
+3. Memory management (GMMU/VRAM). 🔨 следующий фокус (канал GSP уже работает).
 4. Command submission (каналы).
 5. Display / modeset — **вывод картинки**. Конечная видимая цель.
 6. 3D/compute (Metal) — самое дальнее.
 
-Важно: слой 5 (дисплей) невозможен без 2+3+4. Не прыгать вперёд — бить по слою 2.
+Важно: слой 5 (дисплей) невозможен без 2+3+4. Слой 2 закрыт — бить по слою 3 (память/GMMU).
 
 ## Структура репозитория
 
@@ -112,18 +113,20 @@ docs/                   архитектура, роадмап, конспект
   BAR0=`0x52000000`, `PMC_BOOT_0=0x194000A1` (Ada AD104, rev A1), адреса WPR2-регистров.
   См. `docs/hw-dumps/`.
 - Слой 1: 🟢 декод подтверждён железом; загрузка НАШего kext на macOS — ждёт стенда.
-- Слой 2: 🟢 **GSP-RM ЗАГРУЖЕН НА ЖЕЛЕЗЕ 2026-06-30** (RTX 4070S, Linux/VFIO).
+- Слой 2: 🟢 **ЗАВЕРШЁН НА ЖЕЛЕЗЕ 2026-06-30** (RTX 4070S, Linux/VFIO) — задачи 6 И 7.
   Полная цепочка за прогон (`tools/gsp_boot_linux.c`): FWSEC-FRTS→WPR2 → staging GSP-RM
-  (fwimage+radix3+bootloader+signature+WprMeta+libos) → SEC2 Booter `mbox0=0` → **GSP
-  RISC-V active=1**. Метрика задачи 6 достигнута. Доказательство:
-  `docs/hw-dumps/20260630-rtx4070s-gsp-rm-boot-OK.log`. Портируемая логика `driver/gsp/*`
-  (falcon, fwsec_*, fb_layout, booter, gsp_fw, elf64, fw_blob) — 🟢. Осталось: задача 7
-  (очереди RPC → первый handshake = «GSP ответил»). macOS-kext-шим `FwsecRun.*` всё ещё 🟡.
+  (fwimage+radix3+bootloader+signature+WprMeta+libos+очереди+rmargs) → **SET_SYSTEM_INFO+
+  SET_REGISTRY в cmdq до бута** → SEC2 Booter `mbox0=0` → GSP RISC-V active → дренаж msgq
+  с исполнением **`GSP_RUN_CPU_SEQUENCER`** (mid-init ресет GSP-ядра) → **`GSP_INIT_DONE`
+  (0x1001) по RPC**. Доказательство: `docs/hw-dumps/20260630-rtx4070s-gsp-INIT_DONE-OK.log`.
+  **ПОЛНАЯ ТЕХ-ЗАПИСЬ (смещения структур, опкоды, грабли): `docs/gsp-bringup-layer2.md`** —
+  читать первым делом при любой регрессии слоя 2. Портируемая логика `driver/gsp/*`
+  (falcon, fwsec_*, fb_layout, booter, gsp_fw, gsp_rpc, elf64, fw_blob) — 🟢.
+  macOS-kext-шим `FwsecRun.*` всё ещё 🟡 (RPC-часть на kext не портирована).
 - Спека: `.kiro/specs/rtx-tahoe-full-support/` (requirements/design/tasks).
-- Прогон без ребута/монитора: `tools/run-fwsec-detached.sh` (Linux/VFIO, возвращает GUI).
-- Открытое решение ЗАКРЫТО (выбран A, выполнен). Дальше: задача 6 (Booter→GSP-RM).
-  Кандидат-блобы Booter/GSP-RM найдены: `/usr/lib/firmware/nvidia/ad10x/gsp/` (проверить лицензию).
-- Дальше по `docs/gsp-bringup-notes.md` §7.
+- Прогон без ребута/монитора: `tools/run-gsp-boot-detached.sh` (весь слой 2),
+  `tools/run-fwsec-detached.sh` (только FWSEC). Linux/VFIO, возвращают GUI.
+- Дальше: **слой 3** — память/GMMU и аллокации VRAM через работающий RPC-канал.
 
 ## Ключевые источники (референс-база)
 
