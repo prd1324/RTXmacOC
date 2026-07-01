@@ -25,12 +25,15 @@
    (2026-06-30, Linux/VFIO): FWSEC-FRTS→WPR2→Booter→GSP RISC-V active → **`GSP_INIT_DONE`
    по RPC** (задачи 6 И 7). Полная тех-запись: **`docs/gsp-bringup-layer2.md`** (читать,
    если что-то по слою 2 регрессует — там все смещения структур, опкоды, грабли).
-3. Memory management (GMMU/VRAM). 🔨 следующий фокус (канал GSP уже работает).
+3. Memory management (GMMU/VRAM) через RPC. 🟢 **проход A на железе** (2026-06-30):
+   двусторонний RPC + `GET_GSP_STATIC_INFO` (карта FB-регионов) + RM client/device/
+   subdevice. Тех-запись: **`docs/gsp-layer3-rpc.md`**. Дальше — аллокация VRAM.
 4. Command submission (каналы).
 5. Display / modeset — **вывод картинки**. Конечная видимая цель.
 6. 3D/compute (Metal) — самое дальнее.
 
-Важно: слой 5 (дисплей) невозможен без 2+3+4. Слой 2 закрыт — бить по слою 3 (память/GMMU).
+Важно: слой 5 (дисплей) невозможен без 2+3+4. Слой 2 закрыт; слой 3 — фундамент
+(RPC+RM-клиент) на железе, дальше аллокация VRAM, потом слой 4 (каналы).
 
 ## Структура репозитория
 
@@ -123,10 +126,19 @@ docs/                   архитектура, роадмап, конспект
   читать первым делом при любой регрессии слоя 2. Портируемая логика `driver/gsp/*`
   (falcon, fwsec_*, fb_layout, booter, gsp_fw, gsp_rpc, elf64, fw_blob) — 🟢.
   macOS-kext-шим `FwsecRun.*` всё ещё 🟡 (RPC-часть на kext не портирована).
+- Слой 3: 🟢 **ПРОХОД A НА ЖЕЛЕЗЕ 2026-06-30** (RTX 4070S, Linux/VFIO) — двусторонний RPC.
+  Тот же прогон (`tools/gsp_boot_linux.c`, блок «СЛОЙ 3») после `GSP_INIT_DONE`:
+  **`GET_GSP_STATIC_INFO` (65)** → карта 5 FB-регионов VRAM (вершина=12282 МиБ) + внутр.
+  хэндлы GSP + barPde; затем **`GSP_RM_ALLOC` (103)** цепочка `NV01_ROOT`→`NV01_DEVICE_0`→
+  `NV20_SUBDEVICE_0`, каждый `status=NV_OK`. Доказательство:
+  `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log`. Портируемый модуль
+  `driver/gsp/gsp_rm.{c,h}`, офлайн-тест `tools/gsp_rm_test.c` (`make gsp-rm-test`).
+  **ТЕХ-ЗАПИСЬ: `docs/gsp-layer3-rpc.md`** — читать при регрессии слоя 3.
 - Спека: `.kiro/specs/rtx-tahoe-full-support/` (requirements/design/tasks).
-- Прогон без ребута/монитора: `tools/run-gsp-boot-detached.sh` (весь слой 2),
-  `tools/run-fwsec-detached.sh` (только FWSEC). Linux/VFIO, возвращают GUI.
-- Дальше: **слой 3** — память/GMMU и аллокации VRAM через работающий RPC-канал.
+- Прогон без ребута/монитора: `tools/run-gsp-boot-detached.sh` (весь слой 2 + слой 3
+  проход A), `tools/run-fwsec-detached.sh` (только FWSEC). Linux/VFIO, возвращают GUI.
+- Дальше: **слой 3 проход B** — аллокация VRAM (`ALLOC_MEMORY`/`NV01_MEMORY_LOCAL_USER`),
+  RM-control'ы, GPU-VA (`FERMI_VASPACE_A`) через работающий двусторонний RPC.
 
 ## Ключевые источники (референс-база)
 

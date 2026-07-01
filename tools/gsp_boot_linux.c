@@ -33,6 +33,7 @@
 #include "../driver/gsp/booter.h"
 #include "../driver/gsp/gsp_fw.h"
 #include "../driver/gsp/gsp_rpc.h"
+#include "../driver/gsp/gsp_rm.h"
 #include "../driver/gsp/fw_blob.h"
 
 #define TIMEOUT_US (2u * 1000u * 1000u)
@@ -174,6 +175,12 @@ struct seq_ctx {
     const nv_mmio_t *io; uint32_t boot0; uint64_t libos_io, meta_io, booter_io;
     uint32_t app_version; const nv_booter_desc_t *bd;
 };
+
+/* Колбэки канала двустороннего RPC (слой 3): дверной звонок GSP + задержка опроса.
+   io_ctx = наш nv_mmio_t* (через него bar_wr/bar_udelay). */
+static void gsp_rpc_doorbell(void *p)
+{ const nv_mmio_t *io = (const nv_mmio_t *)p; bar_wr(io->ctx, NV_PGSP_FALCON_BASE + 0xc00, 0); }
+static void gsp_rpc_udelay(void *p, uint32_t us) { (void)p; bar_udelay(NULL, us); }
 
 static int seq_poll(const nv_mmio_t *io, uint32_t addr, uint32_t mask, uint32_t val, uint32_t usec)
 {
@@ -461,6 +468,62 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
     else if (msgs) printf("GSP RPC: GSP жив (%u сообщений, последнее function=0x%04x sig=0x%08x), INIT_DONE НЕ пришёл\n",msgs,last_fn,sig);
     else printf("GSP RPC: msgq пуст — GSP не записал сообщение\n");
 
+    /* ===================== СЛОЙ 3 (проход A): двусторонний RPC =====================
+       Канал уже поднят (INIT_DONE). Продолжаем с тех же указателей: cmdq.writePtr и
+       msgq.readPtr, что оставил дренаж. Делаем первый двусторонний RPC
+       GET_GSP_STATIC_INFO (карта FB-регионов), затем цепочку RM client→device→subdevice. */
+    int l3_static_ok = 0, l3_chain_ok = 0;
+    if (got) {
+        nv_gsp_rpc_chan ch;
+        memset(&ch, 0, sizeof(ch));
+        ch.shm = shm_va; ch.lay = shm_lay;
+        /* cmdq.writePtr (=2 после пре-бута); пре-бут использовал seq 0..writePtr-1. */
+        ch.cmdq_wptr = *(volatile uint32_t*)(shm_va + shm_lay.cmdq_off + NV_MSGQ_TX_WRITEPTR_OFF);
+        ch.seq       = ch.cmdq_wptr;
+        ch.msgq_rptr = rptr;                       /* финальный readPtr дренажа */
+        ch.io_ctx = (void*)io; ch.ring = gsp_rpc_doorbell; ch.udelay = gsp_rpc_udelay;
+        printf("\nСЛОЙ 3: RPC-канал cmdq.wptr=%u seq=%u msgq.rptr=%u\n",
+               ch.cmdq_wptr, ch.seq, ch.msgq_rptr);
+
+        /* --- метрика №1: GET_GSP_STATIC_INFO (65) → карта FB-регионов VRAM --- */
+        nv_gsp_static_info si;
+        int sirc = nv_gsp_get_static_info(&ch, &si);
+        if (sirc == NV_GSP_RM_OK) {
+            l3_static_ok = 1;
+            printf("СЛОЙ 3: GET_GSP_STATIC_INFO OK — FB-регионов: %u\n", si.num_regions);
+            for (uint32_t i = 0; i < si.num_regions; i++)
+                printf("  FB[%u] %016llx..%016llx rsvd=%llx perf=0x%x comp=%u iso=%u prot=%u\n",
+                       i, (unsigned long long)si.regions[i].base,
+                       (unsigned long long)si.regions[i].limit,
+                       (unsigned long long)si.regions[i].reserved,
+                       si.regions[i].performance, si.regions[i].compressed,
+                       si.regions[i].iso, si.regions[i].prot);
+            printf("  GSP internal: hClient=0x%08x hDevice=0x%08x hSubdevice=0x%08x; bar1Pde=0x%llx bar2Pde=0x%llx\n",
+                   si.h_client, si.h_device, si.h_subdevice,
+                   (unsigned long long)si.bar1_pde, (unsigned long long)si.bar2_pde);
+        } else {
+            printf("СЛОЙ 3: GET_GSP_STATIC_INFO FAIL rc=%d\n", sirc);
+        }
+
+        /* --- метрика №2: цепочка RM-объектов client→device→subdevice (RM_ALLOC=103) --- */
+        uint32_t hcli=0, hdev=0, hsub=0, st0=0xffffffff, st1=0xffffffff, st2=0xffffffff;
+        int rc0 = nv_gsp_rm_client_ctor(&ch, &hcli, &st0);
+        printf("СЛОЙ 3: RM client  rc=%d status=0x%x handle=0x%08x\n", rc0, st0, hcli);
+        int rc1 = -1, rc2 = -1;
+        if (rc0 == NV_GSP_RM_OK && st0 == 0) {
+            rc1 = nv_gsp_rm_device_ctor(&ch, hcli, &hdev, &st1);
+            printf("СЛОЙ 3: RM device  rc=%d status=0x%x handle=0x%08x\n", rc1, st1, hdev);
+            if (rc1 == NV_GSP_RM_OK && st1 == 0) {
+                rc2 = nv_gsp_rm_subdevice_ctor(&ch, hcli, hdev, &hsub, &st2);
+                printf("СЛОЙ 3: RM subdev  rc=%d status=0x%x handle=0x%08x\n", rc2, st2, hsub);
+            }
+        }
+        l3_chain_ok = (rc0==NV_GSP_RM_OK && st0==0 && rc1==NV_GSP_RM_OK && st1==0 &&
+                       rc2==NV_GSP_RM_OK && st2==0);
+        printf("СЛОЙ 3: итог — static_info=%s, RM-цепочка=%s\n",
+               l3_static_ok?"OK":"нет", l3_chain_ok?"OK":"нет");
+    }
+
     /* --- диагностика: тронул ли GSP очереди/логи --- */
     {
         const uint8_t *cq = shm_va + shm_lay.cmdq_off, *mq = shm_va + shm_lay.msgq_off;
@@ -492,6 +555,12 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
     int rpc_ok = (got && sig==NV_GSP_RPC_SIGNATURE);
     if (brc==NV_OK && mb0==0 && active && rpc_ok){
         printf("\n*** GSP-RM ОТВЕТИЛ ПО RPC (function=0x%08x) — СЛОЙ 2 ЗАВЕРШЁН ***\n",fn);
+        if (l3_static_ok && l3_chain_ok)
+            printf("*** СЛОЙ 3 (проход A): двусторонний RPC + RM client/device/subdevice — OK ***\n");
+        else if (l3_static_ok)
+            printf("*** СЛОЙ 3: GET_GSP_STATIC_INFO OK; RM-цепочка НЕ завершена ***\n");
+        else
+            printf("*** СЛОЙ 3: двусторонний RPC пока не подтверждён ***\n");
         return 0;
     }
     if (brc==NV_OK && mb0==0 && active){

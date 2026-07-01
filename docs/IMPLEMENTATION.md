@@ -42,8 +42,9 @@ Big Sur+ нет (library validation + приватные интерфейсы + 
 | Слой | Что | Статус | Файлы |
 |---|---|---|---|
 | 1 | PCIe bring-up, чтение `PMC_BOOT_0` | 🟡 CI (на железе не запускался) | `pcie_probe.c`, `ada_regs.h`, `driver/RTXProbe/`, `driver/RTXProbeDext/` |
-| 2 | GSP bring-up (FWSEC-FRTS→WPR2) | 🟢 HW 2026-06-29 (Linux/VFIO: mbox0=0, WPR2 set) для `driver/gsp/*`; macOS-kext-шим `FwsecRun.cpp` — 🟡 CI | `tools/{vbios_dump,fwsec_run_linux}.c`, `falcon_regs.h`, `driver/gsp/*`, `driver/RTXProbe/FwsecRun.*` |
-| 3–6 | память/каналы/дисплей/Metal | ⏳ (дисплей — заблокирован Apple, см. graphics-stack) | — |
+| 2 | GSP bring-up (FWSEC-FRTS→WPR2→GSP-RM→`GSP_INIT_DONE`) | 🟢 HW 2026-06-30 (Linux/VFIO) для `driver/gsp/*`; macOS-kext-шим `FwsecRun.cpp` — 🟡 CI | `tools/{vbios_dump,fwsec_run_linux,gsp_boot_linux}.c`, `falcon_regs.h`, `driver/gsp/*` |
+| 3 | Память (GMMU/VRAM) через RPC | 🟢 HW 2026-06-30 **проход A**: двусторонний RPC + RM client/device/subdevice (Linux/VFIO) | `driver/gsp/gsp_rm.*`, `tools/{gsp_boot_linux,gsp_rm_test}.c` |
+| 4–6 | каналы/дисплей/Metal | ⏳ (дисплей — заблокирован Apple, см. graphics-stack) | — |
 
 ---
 
@@ -157,6 +158,28 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
    **Полная тех-запись со всеми деталями и граблями: `docs/gsp-bringup-layer2.md`.**
 
 ---
+
+## Слой 3 — память/GMMU через RPC — проход A 🟢 HW 2026-06-30
+
+После `GSP_INIT_DONE` поднят **двусторонний RPC** к живому GSP-RM (послать команду
+пост-бут, дождаться типизированного ответа). Новый портируемый модуль
+`driver/gsp/gsp_rm.{c,h}` (порт nouveau `r535.c`), офлайн-тест `tools/gsp_rm_test.c`
+(`make gsp-rm-test`, 38 проверок: framing/checksum/multi-page/async-skip/парс/размеры).
+
+- **Метрика №1 🟢 HW:** `GET_GSP_STATIC_INFO (65)` — GSP вернул `rpc_result=0` и
+  **карту 5 FB-регионов VRAM** (вершина = 0x2ffa00000 = 12282 МиБ), внутренние хэндлы
+  GSP (`hClient/hDevice/hSubdevice`), `bar1/bar2PdeBase`. Двусторонний RPC жив.
+- **Метрика №2 🟢 HW:** `GSP_RM_ALLOC (103)` — цепочка `NV01_ROOT`→`NV01_DEVICE_0`→
+  `NV20_SUBDEVICE_0`, каждый `status=NV_OK(0)` (handles 0xc1d00000/0xde1d0000/0x5d1d0000).
+  Наш RM-клиент создан на GPU.
+- Доказательство: `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log` (тот же прогон
+  `tools/gsp_boot_linux.c`, блок «СЛОЙ 3»; `msgq.writePtr` 7→11 — GSP ответил 4 раза).
+- **Полная тех-запись (смещения GspStaticConfigInfo, формат RM_ALLOC, нюансы):
+  `docs/gsp-layer3-rpc.md`.**
+- Смещения `GspStaticConfigInfo` (2168б; fbRegion@840, barPde@2088/2096, hInternal@2152+)
+  получены compile-probe против SDK 535.113.01 + самопроверкой FB-карты на железе.
+- Дальше (проход B): аллокация VRAM (`ALLOC_MEMORY`/`NV01_MEMORY_LOCAL_USER`),
+  RM-control'ы (FB-инфо), GPU-VA (`FERMI_VASPACE_A`).
 
 ---
 

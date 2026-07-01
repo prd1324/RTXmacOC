@@ -17,10 +17,12 @@ NVIDIA RTX (Ada Lovelace, например RTX 4070 Super) по-настояще
 
 Драйвер строится слоями. **Важно (честно):** статус слоя помечен по доказательству —
 🟢 ставится только при наличии лога с реального железа. На сегодня на реальной
-RTX 4070 Super подтверждены: декод `PMC_BOOT_0` (слой 1) и **весь слой 2 целиком** —
+RTX 4070 Super подтверждены: декод `PMC_BOOT_0` (слой 1), **весь слой 2 целиком** —
 FWSEC-FRTS→WPR2, SEC2 Booter грузит GSP-RM, GSP RISC-V стартует, и GSP-RM по RPC
-завершает инициализацию (**`GSP_INIT_DONE`**) — то есть канал драйвер↔GSP работает
-(логи в [docs/hw-dumps/](docs/hw-dumps/)). Код слоёв 3+ компилируется в CI и сверен
+завершает инициализацию (**`GSP_INIT_DONE`**), а также **проход A слоя 3** —
+двусторонний RPC к живому GSP-RM: `GET_GSP_STATIC_INFO` возвращает карту FB-регионов
+VRAM, а `GSP_RM_ALLOC` создаёт цепочку RM client→device→subdevice (`NV_OK`)
+(логи в [docs/hw-dumps/](docs/hw-dumps/)). Код слоёв 4+ компилируется в CI и сверен
 с nova-core/nouveau, но на железе ещё не исполнялся.
 
 > ⚠️ **Блокер вывода изображения.** В современном macOS (Big Sur+) **нет публичной
@@ -37,7 +39,7 @@ FWSEC-FRTS→WPR2, SEC2 Booter грузит GSP-RM, GSP RISC-V стартует,
 |---|------|--------|
 | 1 | **PCIe bring-up** — найти карту, смапить BAR0, прочитать chip ID (`PMC_BOOT_0`) | 🟢 декод подтверждён на железе (kext-загрузка ждёт macOS) |
 | 2 | **GSP bring-up** — поднять GPU через GSP, наладить RPC | 🟢 **ЗАВЕРШЁН на железе** (Linux/VFIO): FWSEC-FRTS→WPR2→Booter→GSP RISC-V active → **`GSP_INIT_DONE` по RPC** |
-| 3 | Memory management (GMMU/VRAM) | ⏳ |
+| 3 | **Memory management (GMMU/VRAM)** через RPC | 🟢 **проход A на железе**: двусторонний RPC + `GET_GSP_STATIC_INFO` (карта FB-регионов) + RM client/device/subdevice; дальше — аллокация VRAM |
 | 4 | Command submission (каналы) | ⏳ |
 | 5 | **Display / modeset** — вывод изображения | ⛔ заблокирован моделью Apple (см. выше) |
 | 6 | 3D / compute (Metal) | ⛔ закрытый интерфейс |
@@ -119,6 +121,7 @@ RTX 4070 Super (AD104, `10DE:2783`) на i5-12400F + Gigabyte B760M, без iGPU
 - [Архитектура и стратегия](docs/ARCHITECTURE.md) — где стена и куда бьём (путь через GSP).
 - [Графический стек macOS и блокер вывода](docs/macos-graphics-stack.md) — почему вывод картинки сторонним драйвером на Big Sur+ закрыт.
 - [Bring-up GSP — слой 2 РЕШЁН](docs/gsp-bringup-layer2.md) — полная тех-запись: как GSP-RM доходит до `GSP_INIT_DONE` (смещения структур, опкоды секвенсера, грабли).
+- [Слой 3 — двусторонний RPC (проход A)](docs/gsp-layer3-rpc.md) — тех-запись: `GET_GSP_STATIC_INFO` (карта FB-регионов) + RM client/device/subdevice через `GSP_RM_ALLOC`.
 - [Bring-up GSP (план)](docs/gsp-bringup-notes.md) — исходный план атаки по открытым исходникам.
 - [Состояние реализации](docs/IMPLEMENTATION.md) — что и как уже сделано, следующие шаги.
 - [Карта портирования](docs/PORTING-MAP.md) — соответствие наш код ↔ исходники nova-core.

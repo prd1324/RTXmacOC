@@ -17,7 +17,7 @@ PROBE_BIN = pcie_probe
 DUMP_DIR  = docs/hw-dumps
 DATE     := $(shell date +%Y%m%d)
 
-.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test booter-run-linux gsp-stage-test gsp-boot-linux gsp-rpc-test
+.PHONY: probe run dump clean mmio-linux vbios-dump booter-parse-test booter-run-linux gsp-stage-test gsp-boot-linux gsp-rpc-test gsp-rm-test
 
 probe: $(PROBE_BIN)
 
@@ -58,12 +58,17 @@ gsp-boot-linux:
 	cc -Wall -Wextra -O2 tools/gsp_boot_linux.c tools/fw_blob_linux.c \
 	   driver/gsp/falcon.c driver/gsp/fwsec_locate.c driver/gsp/fwsec_patch.c \
 	   driver/gsp/fb_layout.c driver/gsp/booter.c driver/gsp/gsp_fw.c driver/gsp/elf64.c \
-	   driver/gsp/gsp_rpc.c \
+	   driver/gsp/gsp_rpc.c driver/gsp/gsp_rm.c \
 	   -o tools/gsp_boot_linux
 
 # Офлайн-проверка раскладки очередей GSP-RM (слой 2, задача 7). Без GPU.
 gsp-rpc-test:
 	cc -Wall -Wextra -O2 tools/gsp_rpc_test.c driver/gsp/gsp_rpc.c -o tools/gsp_rpc_test
+
+# Офлайн-тест двустороннего RPC слоя 3 (RM client/device/subdevice + static_info). Без GPU.
+#   make gsp-rm-test && ./tools/gsp_rm_test
+gsp-rm-test:
+	cc -Wall -Wextra -O2 tools/gsp_rm_test.c driver/gsp/gsp_rm.c driver/gsp/gsp_rpc.c -o tools/gsp_rm_test
 
 # Чтение/разбор VBIOS карты (слой 2, шаг 1). Портируемо, собирается любым cc.
 #   make vbios-dump && ./tools/vbios_dump <rom_file>

@@ -11,6 +11,7 @@ tools/vbios_dump
 tools/booter_parse_test
 tools/gsp_stage_test
 tools/gsp_rpc_test
+tools/gsp_rm_test
 
 # рантайм-артефакты HW-прогона (локальные, не в репо)
 tools/fwsec-frts.log
@@ -32,3 +33,6 @@ RTXProbeDext.h
 .DS_Store
 *.xcuserstate
 xcuserdata/
+
+# локальная заметка пользователя (правило 7 — не коммитить)
+tools/ЧИТАЙ-ПОСЛЕ-ВХОДА.txt

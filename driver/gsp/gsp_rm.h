@@ -1,0 +1,140 @@
+/*
+ * gsp_rm.h — слой 3, проход A: двусторонний RPC к живому GSP-RM + базовые RM-объекты.
+ *
+ * После GSP_INIT_DONE (слой 2) канал «драйвер↔GSP» уже поднят: cmdq (CPU→GSP) и
+ * msgq (GSP→CPU) в общей памяти. Здесь — ПОЛНОЦЕННЫЙ двусторонний RPC: послать
+ * команду пост-бут и дождаться типизированного ответа со статусом, плюс первые
+ * RPC слоя 3:
+ *   - GET_GSP_STATIC_INFO (65) — карта FB-регионов VRAM + внутренние RM-хэндлы GSP;
+ *   - GSP_RM_ALLOC (103)       — цепочка RM-объектов client→device→subdevice.
+ *
+ * Источники (пересказано для лицензии): nouveau r535.c (r535_gsp_cmdq_push,
+ * r535_gsp_msg_recv, r535_gsp_rpc_rm_alloc_*, r535_gsp_client_ctor/device_ctor/
+ * subdevice_ctor, r535_gsp_rpc_get_gsp_static_info); nvrm 535.113.01:
+ * g_rpc-structures.h, rpc_global_enums.h, cl0000/cl0080/cl2080.h, gsp_static_config.h.
+ */
+#ifndef RTXMACOC_GSP_RM_H
+#define RTXMACOC_GSP_RM_H
+
+#include <stdint.h>
+#include <stddef.h>
+#include "gsp_rpc.h"
+
+/* --- Номера RPC-функций (rpc_global_enums.h 535.113.01) --- */
+#define NV_VGPU_MSG_FUNCTION_GET_GSP_STATIC_INFO  65u
+#define NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL       76u
+#define NV_VGPU_MSG_FUNCTION_GSP_RM_ALLOC        103u
+
+/* --- Классы RM-объектов (cl0000/cl0080/cl2080.h) --- */
+#define NV01_ROOT          0x00000000u
+#define NV01_DEVICE_0      0x00000080u
+#define NV20_SUBDEVICE_0   0x00002080u
+
+/* Канонические хэндлы цепочки (ровно как nouveau r535_gsp_*_ctor). */
+#define NV_GSP_RM_CLIENT_HANDLE  0xc1d00000u  /* | id (id=0) */
+#define NV_GSP_RM_DEVICE_HANDLE  0xde1d0000u
+#define NV_GSP_RM_SUBDEV_HANDLE  0x5d1d0000u
+
+/* rpc_gsp_rm_alloc_v03_00 — шапка 32 байта (g_rpc-structures.h):
+   hClient@0, hParent@4, hObject@8, hClass@12, status@16, paramsSize@20,
+   flags@24, reserved[4]@28, params@32. */
+#define NV_RM_ALLOC_HDR_SIZE       32u
+#define NV_RM_ALLOC_HCLIENT_OFF     0u
+#define NV_RM_ALLOC_HPARENT_OFF     4u
+#define NV_RM_ALLOC_HOBJECT_OFF     8u
+#define NV_RM_ALLOC_HCLASS_OFF     12u
+#define NV_RM_ALLOC_STATUS_OFF     16u
+#define NV_RM_ALLOC_PARAMSIZE_OFF  20u
+#define NV_RM_ALLOC_FLAGS_OFF      24u
+
+/* --- GspStaticConfigInfo (gsp_static_config.h 535.113.01) ---
+ * Смещения получены compile-probe против SDK-заголовков 535.113.01 (см. gsp_rm.c,
+ * комментарий «PROBE»), на железе дополнительно проверяются самопроверкой
+ * (numFBRegions∈[1..16], region[0].limit ≈ размер VRAM). */
+#define NV_GSP_SCI_SIZE            2168u  /* sizeof(GspStaticConfigInfo) */
+#define NV_GSP_SCI_FBREGION_OFF     840u  /* offsetof(.., fbRegionInfoParams) */
+#define NV_GSP_SCI_BAR1PDE_OFF     2088u  /* bar1PdeBase (u64) */
+#define NV_GSP_SCI_BAR2PDE_OFF     2096u  /* bar2PdeBase (u64) */
+#define NV_GSP_SCI_HINTCLIENT_OFF  2152u  /* hInternalClient */
+#define NV_GSP_SCI_HINTDEVICE_OFF  2156u  /* hInternalDevice */
+#define NV_GSP_SCI_HINTSUBDEV_OFF  2160u  /* hInternalSubdevice */
+/* NV2080_CTRL_CMD_FB_GET_FB_REGION_INFO_PARAMS @FBREGION_OFF (ctrl2080fb.h):
+   numFBRegions@0 (u32), fbRegion[16]@8; запись региона = 48 байт:
+   base@0 limit@8 reserved@16 performance@24 supportCompressed@28
+   supportISO@29 bProtected@30. */
+#define NV_GSP_FBREGION_NUM_OFF      0u
+#define NV_GSP_FBREGION_ARR_OFF      8u
+#define NV_GSP_FBREGION_MAX         16u
+#define NV_GSP_FBREGION_STRIDE      48u
+
+/* ===================== Канал двустороннего RPC ===================== */
+
+/* Платформенные колбэки (как nv_mmio_t в falcon.c — модуль остаётся переносимым):
+   ring — дверной звонок GSP (falcon+0xc00=0); udelay — задержка опроса. */
+typedef struct {
+    uint8_t            *shm;        /* начало shared-региона очередей */
+    nv_gsp_shm_layout_t lay;        /* раскладка очередей (cmdq/msgq/ptes) */
+    uint32_t            cmdq_wptr;  /* текущий слот записи cmdq (продолжаем с пре-бута) */
+    uint32_t            seq;        /* следующий sequence для cmdq-элемента */
+    uint32_t            msgq_rptr;  /* текущий слот чтения msgq (после INIT_DONE) */
+    void               *io_ctx;     /* контекст для колбэков (наш nv_mmio_t*) */
+    void              (*ring)(void *io_ctx);                /* звонок 0xc00=0 */
+    void              (*udelay)(void *io_ctx, uint32_t us); /* задержка */
+} nv_gsp_rpc_chan;
+
+/* Один FB-регион VRAM (распарсенный). */
+typedef struct {
+    uint64_t base, limit, reserved;
+    uint32_t performance;
+    uint8_t  compressed, iso, prot;
+} nv_gsp_fb_region;
+
+/* Результат GET_GSP_STATIC_INFO. */
+typedef struct {
+    uint32_t         num_regions;
+    nv_gsp_fb_region regions[NV_GSP_FBREGION_MAX];
+    uint32_t         h_client, h_device, h_subdevice;  /* внутренние хэндлы GSP */
+    uint64_t         bar1_pde, bar2_pde;
+} nv_gsp_static_info;
+
+/* Коды возврата уровня RPC. */
+#define NV_GSP_RM_OK            0
+#define NV_GSP_RM_ERR_ARG     (-1)
+#define NV_GSP_RM_ERR_TIMEOUT (-2)
+#define NV_GSP_RM_ERR_BOUNDS  (-3)
+
+/*
+ * Двусторонний RPC: послать функцию fn с payload req[req_len] в cmdq, позвонить
+ * в звонок, опросить msgq до ответа той же функции (async-сообщения по пути —
+ * пропускаются с consume). При совпадении: payload ответа → reply_out[reply_cap]
+ * (усечение допускается), *reply_len ← полная длина payload ответа,
+ * *rpc_result ← поле rpc_result заголовка ответа (0 = ок). timeout_us — лимит.
+ * Возврат: 0 / NV_GSP_RM_ERR_*. Порт r535_gsp_cmdq_push + r535_gsp_msg_recv.
+ */
+int nv_gsp_rpc_call(nv_gsp_rpc_chan *ch, uint32_t fn,
+                    const uint8_t *req, uint32_t req_len,
+                    uint8_t *reply_out, uint32_t reply_cap, uint32_t *reply_len,
+                    uint32_t *rpc_result, uint32_t timeout_us);
+
+/* GET_GSP_STATIC_INFO (65): запросить и разобрать FB-карту + хэндлы в *out.
+   Возврат 0 при rpc_result==0 и прошедшей самопроверке FB-карты. */
+int nv_gsp_get_static_info(nv_gsp_rpc_chan *ch, nv_gsp_static_info *out);
+
+/*
+ * GSP_RM_ALLOC (103): аллоцировать RM-объект (hObject класса hClass под hParent).
+ * params[params_len] копируются после 32-байтной шапки. *status ← поле status
+ * ответа (NV_OK==0). Возврат 0, если RPC прошёл (статус смотреть отдельно).
+ * Порт r535_gsp_rpc_rm_alloc_get/push.
+ */
+int nv_gsp_rm_alloc(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hParent,
+                    uint32_t hObject, uint32_t hClass,
+                    const uint8_t *params, uint32_t params_len, uint32_t *status);
+
+/* Конструкторы цепочки (root→device→subdevice). *out_* ← хэндл, *status ← статус. */
+int nv_gsp_rm_client_ctor(nv_gsp_rpc_chan *ch, uint32_t *out_client, uint32_t *status);
+int nv_gsp_rm_device_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient,
+                          uint32_t *out_device, uint32_t *status);
+int nv_gsp_rm_subdevice_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
+                             uint32_t *out_subdev, uint32_t *status);
+
+#endif /* RTXMACOC_GSP_RM_H */

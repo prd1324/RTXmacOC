@@ -26,7 +26,7 @@ WindowServer: (1) library validation не пускает чужой Metal-бан
 |---|---|---|
 | 1 PCIe bring-up | найти карту, BAR0, `PMC_BOOT_0` | 🟢 декод подтверждён железом; kext-загрузка ждёт стенда |
 | 2 GSP bring-up | FWSEC-FRTS→WPR2→Booter→GSP-RM→RPC | 🟢 **СЛОЙ 2 ЗАВЕРШЁН НА ЖЕЛЕЗЕ 2026-06-30**: задача 6 (FWSEC-FRTS→WPR2, Booter mbox0=0, GSP RISC-V active) И задача 7 (**`GSP_INIT_DONE` получен по RPC!**). Полный bring-up: SET_SYSTEM_INFO+SET_REGISTRY в cmdq → Booter → дренаж msgq с исполнением `GSP_RUN_CPU_SEQUENCER` (mid-init ресет GSP-ядра) → `GSP_INIT_DONE (0x1001)`. Доказательство: `docs/hw-dumps/20260630-rtx4070s-gsp-INIT_DONE-OK.log`. macOS-kext-шим 🟡 |
-| 3 память (GMMU) | VRAM через RPC | ⏳ |
+| 3 память (GMMU) | VRAM через RPC | 🟢 **ПРОХОД A НА ЖЕЛЕЗЕ 2026-06-30**: двусторонний RPC к GSP-RM — `GET_GSP_STATIC_INFO` (карта 5 FB-регионов VRAM, вершина=12282 МиБ) + `GSP_RM_ALLOC` цепочка client→device→subdevice (`NV_OK`). `driver/gsp/gsp_rm.*`, тех-запись `docs/gsp-layer3-rpc.md`, лог `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log`. Дальше: аллокация VRAM |
 | 4 каналы | command submission | ⏳ |
 | 5 дисплей | IOFramebuffer/WindowServer | ⛔ замок Apple |
 | 6 Metal | IOAccelerator/Metal bundle | ⛔ замок Apple |
