@@ -210,7 +210,86 @@ static void test_client_ctor(void)
     CHECK(ld32(al + NV_RM_ALLOC_HDR_SIZE + 4) == 0xffffffffu, "NV0000.processID == ~0");
 }
 
-/* --- тест 6: размеры структур и константы --- */
+/* --- тест 6: RM_CONTROL (params IN/OUT) --- */
+static void test_rm_control(void)
+{
+    printf("[test_rm_control]\n");
+    nv_gsp_rpc_chan ch; chan_init(&ch);
+    /* ответ GSP: rpc_gsp_rm_control echo (24б шапка, status=0) + params(16) с новыми значениями */
+    uint8_t rep[NV_RM_CTRL_HDR_SIZE + 16]; memset(rep, 0, sizeof(rep));
+    st32(rep + NV_RM_CTRL_STATUS_OFF, 0);
+    for (int i=0;i<16;i++) rep[NV_RM_CTRL_HDR_SIZE + i] = (uint8_t)(0xB0 + i);
+    put_msg(g_shm, &ch.lay, 0, NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL, 0, rep, sizeof(rep), 1);
+    set_msgq_wptr(g_shm, &ch.lay, 1);
+
+    uint8_t params[16]; for (int i=0;i<16;i++) params[i]=(uint8_t)i;   /* IN */
+    uint32_t st=0xff;
+    int rc = nv_gsp_rm_control(&ch, 0x111, 0x222, 0x333, params, 16, &st);
+    CHECK(rc == NV_GSP_RM_OK, "rm_control OK");
+    CHECK(st == 0, "status == NV_OK");
+    CHECK((uint8_t)params[0]==0xB0 && (uint8_t)params[15]==0xBF, "params перезаписаны ответом (IN/OUT)");
+    /* framing cmdq: fn=76, hObject/cmd в payload */
+    const uint8_t *ce = g_shm + ch.lay.cmdq_off + NV_GSP_QUEUE_ENTRYOFF + 0;
+    const uint8_t *cp = ce + NV_GSP_RPC_PAYLOAD_OFF;
+    CHECK(ld32(ce + NV_GSP_RPC_HDR_OFF + NV_GSP_RPC_F_FUNCTION) == NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL, "cmdq function == GSP_RM_CONTROL");
+    CHECK(ld32(cp + NV_RM_CTRL_HOBJECT_OFF) == 0x222, "hObject в payload");
+    CHECK(ld32(cp + NV_RM_CTRL_CMD_OFF) == 0x333, "cmd в payload");
+    CHECK(ld32(cp + NV_RM_CTRL_PARAMSIZE_OFF) == 16, "paramsSize == 16");
+}
+
+/* --- тест 7: FB_GET_INFO_V2 (парс значений по индексам) --- */
+static void test_fb_get_info(void)
+{
+    printf("[test_fb_get_info]\n");
+    nv_gsp_rpc_chan ch; chan_init(&ch);
+    uint32_t idx[3] = { NV2080_CTRL_FB_INFO_INDEX_HEAP_SIZE,
+                        NV2080_CTRL_FB_INFO_INDEX_RAM_SIZE,
+                        NV2080_CTRL_FB_INFO_INDEX_HEAP_FREE };
+    /* ответ: ctrl-шапка(24, status=0) + FB_GET_INFO_V2_PARAMS(436): data заполнены GSP */
+    static uint8_t rep[NV_RM_CTRL_HDR_SIZE + NV2080_CTRL_FB_GET_INFO_V2_SIZE];
+    memset(rep, 0, sizeof(rep));
+    uint8_t *pp = rep + NV_RM_CTRL_HDR_SIZE;
+    st32(pp + 0, 3);                                        /* fbInfoListSize */
+    uint32_t vals[3] = { 0x00c00000, 0x00c00000, 0x00b00000 };
+    for (int i=0;i<3;i++){ st32(pp + 4 + i*8, idx[i]); st32(pp + 4 + i*8 + 4, vals[i]); }
+    put_msg(g_shm, &ch.lay, 0, NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL, 0, rep, sizeof(rep), 1);
+    set_msgq_wptr(g_shm, &ch.lay, 1);
+
+    uint32_t out[3] = {0,0,0}, st=0xff;
+    int rc = nv_gsp_fb_get_info(&ch, 0xc1d00000, NV_GSP_RM_SUBDEV_HANDLE, idx, out, 3, &st);
+    CHECK(rc == NV_GSP_RM_OK, "fb_get_info OK");
+    CHECK(st == 0, "status == NV_OK");
+    CHECK(out[0]==vals[0] && out[1]==vals[1] && out[2]==vals[2], "значения по индексам распарсены");
+    /* cmdq: cmd == FB_GET_INFO_V2, hObject == subdevice */
+    const uint8_t *cp = g_shm + ch.lay.cmdq_off + NV_GSP_QUEUE_ENTRYOFF + 0 + NV_GSP_RPC_PAYLOAD_OFF;
+    CHECK(ld32(cp + NV_RM_CTRL_CMD_OFF) == NV2080_CTRL_CMD_FB_GET_INFO_V2, "cmd == FB_GET_INFO_V2");
+    CHECK(ld32(cp + NV_RM_CTRL_HOBJECT_OFF) == NV_GSP_RM_SUBDEV_HANDLE, "hObject == subdevice");
+    CHECK(ld32(cp + NV_RM_CTRL_HDR_SIZE + 0) == 3, "fbInfoListSize == 3 в запросе");
+}
+
+/* --- тест 8: vaspace_ctor (FERMI_VASPACE_A) --- */
+static void test_vaspace_ctor(void)
+{
+    printf("[test_vaspace_ctor]\n");
+    nv_gsp_rpc_chan ch; chan_init(&ch);
+    uint8_t rep[NV_RM_ALLOC_HDR_SIZE]; memset(rep, 0, sizeof(rep));
+    st32(rep + NV_RM_ALLOC_STATUS_OFF, 0);
+    put_msg(g_shm, &ch.lay, 0, NV_VGPU_MSG_FUNCTION_GSP_RM_ALLOC, 0, rep, sizeof(rep), 1);
+    set_msgq_wptr(g_shm, &ch.lay, 1);
+
+    uint32_t hva=0, st=0xff;
+    int rc = nv_gsp_rm_vaspace_ctor(&ch, NV_GSP_RM_CLIENT_HANDLE, NV_GSP_RM_DEVICE_HANDLE, &hva, &st);
+    CHECK(rc == NV_GSP_RM_OK, "vaspace_ctor OK");
+    CHECK(st == 0, "status == NV_OK");
+    CHECK(hva == NV_GSP_RM_VASPACE_HANDLE, "хэндл vaspace == 0x90f10000");
+    const uint8_t *ce = g_shm + ch.lay.cmdq_off + NV_GSP_QUEUE_ENTRYOFF + 0;
+    const uint8_t *al = ce + NV_GSP_RPC_PAYLOAD_OFF;
+    CHECK(ld32(al + NV_RM_ALLOC_HCLASS_OFF) == FERMI_VASPACE_A, "hClass == FERMI_VASPACE_A");
+    CHECK(ld32(al + NV_RM_ALLOC_HPARENT_OFF) == NV_GSP_RM_DEVICE_HANDLE, "hParent == device");
+    CHECK(ld32(al + NV_RM_ALLOC_PARAMSIZE_OFF) == 48, "paramsSize == 48 (NV_VASPACE_ALLOCATION_PARAMETERS)");
+}
+
+/* --- тест 9: размеры структур и константы --- */
 struct nv0000_mirror { uint32_t hClient; uint32_t processID; char processName[100]; };
 struct nv0080_mirror { uint32_t deviceId, hClientShare, hTargetClient, hTargetDevice;
                        int32_t flags; uint64_t vaSpaceSize, vaStartInternal, vaLimitInternal;
@@ -227,6 +306,9 @@ static void test_layout(void)
     CHECK(NV_GSP_SCI_SIZE == 2168, "sizeof(GspStaticConfigInfo) == 2168 (probe)");
     CHECK(NV_GSP_SCI_FBREGION_OFF == 840, "off fbRegionInfoParams == 840 (probe)");
     CHECK(NV_GSP_SCI_HINTSUBDEV_OFF == 2160, "off hInternalSubdevice == 2160 (probe)");
+    CHECK(NV_RM_CTRL_HDR_SIZE == 24, "rpc_gsp_rm_control header == 24");
+    CHECK(NV2080_CTRL_FB_GET_INFO_V2_SIZE == 436, "FB_GET_INFO_V2_PARAMS == 436 (4+54*8)");
+    CHECK(NV_VASPACE_ALLOC_PARAMS_SIZE == 48, "NV_VASPACE_ALLOCATION_PARAMETERS == 48");
 }
 
 int main(void)
@@ -236,6 +318,9 @@ int main(void)
     test_multipage();
     test_static_info();
     test_client_ctor();
+    test_rm_control();
+    test_fb_get_info();
+    test_vaspace_ctor();
     test_layout();
     printf(failed ? "\n=== gsp_rm_test: ЕСТЬ ПРОВАЛЫ ===\n" : "\n=== gsp_rm_test: ВСЕ ТЕСТЫ ПРОШЛИ ===\n");
     return failed ? 1 : 0;

@@ -25,15 +25,16 @@
    (2026-06-30, Linux/VFIO): FWSEC-FRTS→WPR2→Booter→GSP RISC-V active → **`GSP_INIT_DONE`
    по RPC** (задачи 6 И 7). Полная тех-запись: **`docs/gsp-bringup-layer2.md`** (читать,
    если что-то по слою 2 регрессует — там все смещения структур, опкоды, грабли).
-3. Memory management (GMMU/VRAM) через RPC. 🟢 **проход A на железе** (2026-06-30):
-   двусторонний RPC + `GET_GSP_STATIC_INFO` (карта FB-регионов) + RM client/device/
-   subdevice. Тех-запись: **`docs/gsp-layer3-rpc.md`**. Дальше — аллокация VRAM.
+3. Memory management (GMMU/VRAM) через RPC. 🟢 **проходы A+B на железе**: A (2026-06-30)
+   — двусторонний RPC + `GET_GSP_STATIC_INFO` + RM client/device/subdevice; B (2026-07-01)
+   — `RM_CONTROL`/`FB_GET_INFO_V2` (конфиг VRAM) + `FERMI_VASPACE_A` (корень GMMU).
+   Тех-запись: **`docs/gsp-layer3-rpc.md`**. Дальше — аллокация VRAM-объекта + маппинг.
 4. Command submission (каналы).
 5. Display / modeset — **вывод картинки**. Конечная видимая цель.
 6. 3D/compute (Metal) — самое дальнее.
 
-Важно: слой 5 (дисплей) невозможен без 2+3+4. Слой 2 закрыт; слой 3 — фундамент
-(RPC+RM-клиент) на железе, дальше аллокация VRAM, потом слой 4 (каналы).
+Важно: слой 5 (дисплей) невозможен без 2+3+4. Слой 2 закрыт; слой 3 — все три RPC-глагола
+(alloc/control/static) + GMMU-корень на железе; дальше аллокация VRAM, потом слой 4 (каналы).
 
 ## Структура репозитория
 
@@ -134,11 +135,16 @@ docs/                   архитектура, роадмап, конспект
   `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log`. Портируемый модуль
   `driver/gsp/gsp_rm.{c,h}`, офлайн-тест `tools/gsp_rm_test.c` (`make gsp-rm-test`).
   **ТЕХ-ЗАПИСЬ: `docs/gsp-layer3-rpc.md`** — читать при регрессии слоя 3.
+- Слой 3 **проход B**: 🟢 **НА ЖЕЛЕЗЕ 2026-07-01** (тот же прогон, блок «3B»):
+  **`GSP_RM_CONTROL` (76) / `FB_GET_INFO_V2`** → конфиг VRAM (RAM=12282 МиБ, HEAP, BAR1=256 МиБ,
+  все `NV_OK`); **`FERMI_VASPACE_A` (0x90f1)** → GPU VA-пространство (корень GMMU) `NV_OK`.
+  Доказательство: `docs/hw-dumps/20260701-rtx4070s-layer3-passB-OK.log`. Код:
+  `nv_gsp_rm_control`/`nv_gsp_fb_get_info`/`nv_gsp_rm_vaspace_ctor` в `gsp_rm.{c,h}`.
 - Спека: `.kiro/specs/rtx-tahoe-full-support/` (requirements/design/tasks).
 - Прогон без ребута/монитора: `tools/run-gsp-boot-detached.sh` (весь слой 2 + слой 3
-  проход A), `tools/run-fwsec-detached.sh` (только FWSEC). Linux/VFIO, возвращают GUI.
-- Дальше: **слой 3 проход B** — аллокация VRAM (`ALLOC_MEMORY`/`NV01_MEMORY_LOCAL_USER`),
-  RM-control'ы, GPU-VA (`FERMI_VASPACE_A`) через работающий двусторонний RPC.
+  проходы A и B), `tools/run-fwsec-detached.sh` (только FWSEC). Linux/VFIO, возвращают GUI.
+- Дальше: **аллокация VRAM-объекта** (`NV01_MEMORY_LOCAL_USER`) + маппинг в VA-пространство,
+  затем **слой 4** (каналы: FIFO/GR RM-control'ы) через работающий двусторонний RPC.
 
 ## Ключевые источники (референс-база)
 

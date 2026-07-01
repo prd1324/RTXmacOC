@@ -305,6 +305,11 @@ GSP), но `msgq.writePtr=0` (нет GSP_INIT_DONE), LOGRM едва тронут
 | `nv_gsp_rm_client_ctor` | `r535_gsp_client_ctor` | NV01_ROOT(0x0), h=0xc1d00000, NV0000{hClient,processID=~0,name[100]}(108) | 🟢 HW |
 | `nv_gsp_rm_device_ctor` | `r535_gsp_device_ctor` | NV01_DEVICE_0(0x80), h=0xde1d0000, NV0080{hClientShare,…}(56) | 🟢 HW |
 | `nv_gsp_rm_subdevice_ctor` | `r535_gsp_subdevice_ctor` | NV20_SUBDEVICE_0(0x2080), h=0x5d1d0000, NV2080{subDeviceId=0}(4) | 🟢 HW |
+| `nv_gsp_rm_control` | `r535_gsp_rpc_rm_ctrl_get/push` | rpc_gsp_rm_control_v03_00 (24б): hClient@0 hObject@4 cmd@8 status@12 paramsSize@16 flags@20 params@24; params IN/OUT | 🟢 HW |
+| `nv_gsp_fb_get_info` | OGK `ctrl2080fb.h` FB_GET_INFO_V2 | cmd=0x20801303; params fbInfoListSize@0 + fbInfoList[54] {index,data}(8б); индексы RAM=0x07/HEAP=0x09/HEAP_FREE=0x16/BAR1=0x05 | 🟢 HW (RAM=12282 МиБ) |
+| `nv_gsp_rm_vaspace_ctor` | `cl90f1.h` + `nvos.h` | FERMI_VASPACE_A(0x90f1), h=0x90f10000, NV_VASPACE_ALLOCATION_PARAMETERS(48б): index=GPU_NEW(0) | 🟢 HW |
 
-**Полная тех-запись:** `docs/gsp-layer3-rpc.md`. Дальше (проход B): `ALLOC_MEMORY`/
-`NV01_MEMORY_LOCAL_USER`, RM-control'ы, `FERMI_VASPACE_A`.
+**Полная тех-запись:** `docs/gsp-layer3-rpc.md` (проходы A+B). Дальше: аллокация
+VRAM-объекта (`NV01_MEMORY_LOCAL_USER`) + маппинг в VA-пространство; слой 4 (каналы).
+Примечание: FB_GET_INFO_V2 отсутствовал в nouveau-выжимке — дотянут из полного
+публичного OGK-заголовка `ctrl2080fb.h` (535.113.01), в репо не коммитим.

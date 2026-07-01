@@ -196,3 +196,78 @@ int nv_gsp_rm_subdevice_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDe
     if (rc == NV_GSP_RM_OK && out_subdev) *out_subdev = h;
     return rc;
 }
+
+/* ===================== Проход B: RM_CONTROL + VA-пространство ===================== */
+
+int nv_gsp_rm_control(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hObject, uint32_t cmd,
+                      uint8_t *params, uint32_t params_len, uint32_t *status)
+{
+    if (!ch) return NV_GSP_RM_ERR_ARG;
+
+    /* req = rpc_gsp_rm_control_v03_00 (шапка 24б) + params. */
+    static uint8_t req[NV_RM_CTRL_HDR_SIZE + 512u];
+    static uint8_t rep[NV_RM_CTRL_HDR_SIZE + 512u];
+    if (params_len > 512u) return NV_GSP_RM_ERR_BOUNDS;
+    uint32_t req_len = NV_RM_CTRL_HDR_SIZE + params_len;
+    for (uint32_t i = 0; i < req_len; i++) req[i] = 0;
+    st32(req + NV_RM_CTRL_HCLIENT_OFF,   hClient);
+    st32(req + NV_RM_CTRL_HOBJECT_OFF,   hObject);
+    st32(req + NV_RM_CTRL_CMD_OFF,       cmd);
+    st32(req + NV_RM_CTRL_STATUS_OFF,    0u);
+    st32(req + NV_RM_CTRL_PARAMSIZE_OFF, params_len);
+    st32(req + NV_RM_CTRL_FLAGS_OFF,     0u);
+    if (params && params_len)
+        for (uint32_t i = 0; i < params_len; i++) req[NV_RM_CTRL_HDR_SIZE + i] = params[i];
+
+    uint32_t rlen = 0, rres = 0xffffffffu;
+    int rc = nv_gsp_rpc_call(ch, NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL,
+                             req, req_len, rep, req_len, &rlen, &rres, 4000000u);
+    if (rc != NV_GSP_RM_OK) return rc;
+    if (rres != 0) return NV_GSP_RM_ERR_BOUNDS;
+    if (rlen < NV_RM_CTRL_HDR_SIZE) return NV_GSP_RM_ERR_BOUNDS;
+    if (status) *status = ld32(rep + NV_RM_CTRL_STATUS_OFF);
+    /* Ответные params (IN/OUT) — обратно в буфер вызывающего. */
+    if (params && params_len) {
+        uint32_t avail = rlen - NV_RM_CTRL_HDR_SIZE;
+        uint32_t n = params_len < avail ? params_len : avail;
+        for (uint32_t i = 0; i < n; i++) params[i] = rep[NV_RM_CTRL_HDR_SIZE + i];
+    }
+    return NV_GSP_RM_OK;
+}
+
+int nv_gsp_fb_get_info(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hSubdevice,
+                       const uint32_t *indices, uint32_t *out_data, uint32_t n,
+                       uint32_t *status)
+{
+    if (!ch || !indices || !out_data) return NV_GSP_RM_ERR_ARG;
+    if (n == 0 || n > NV2080_CTRL_FB_INFO_MAX_LIST) return NV_GSP_RM_ERR_ARG;
+
+    /* NV2080_CTRL_FB_GET_INFO_V2_PARAMS: fbInfoListSize@0 + fbInfoList[54]@4 ({index,data}). */
+    static uint8_t p[NV2080_CTRL_FB_GET_INFO_V2_SIZE];
+    for (unsigned i = 0; i < NV2080_CTRL_FB_GET_INFO_V2_SIZE; i++) p[i] = 0;
+    st32(p + 0, n);                                       /* fbInfoListSize */
+    for (uint32_t i = 0; i < n; i++)
+        st32(p + 4 + i * 8, indices[i]);                  /* fbInfoList[i].index (data=0) */
+
+    uint32_t st = 0xffffffffu;
+    int rc = nv_gsp_rm_control(ch, hClient, hSubdevice, NV2080_CTRL_CMD_FB_GET_INFO_V2,
+                               p, NV2080_CTRL_FB_GET_INFO_V2_SIZE, &st);
+    if (status) *status = st;
+    if (rc != NV_GSP_RM_OK) return rc;
+    for (uint32_t i = 0; i < n; i++)
+        out_data[i] = ld32(p + 4 + i * 8 + 4);            /* fbInfoList[i].data */
+    return NV_GSP_RM_OK;
+}
+
+int nv_gsp_rm_vaspace_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
+                           uint32_t *out_vaspace, uint32_t *status)
+{
+    uint32_t h = NV_GSP_RM_VASPACE_HANDLE;
+    /* NV_VASPACE_ALLOCATION_PARAMETERS (48б): index=GPU_NEW, прочее 0 (дефолт). */
+    uint8_t p[NV_VASPACE_ALLOC_PARAMS_SIZE];
+    for (unsigned i = 0; i < sizeof(p); i++) p[i] = 0;
+    st32(p + 0, NV_VASPACE_ALLOCATION_INDEX_GPU_NEW);     /* index */
+    int rc = nv_gsp_rm_alloc(ch, hClient, hDevice, h, FERMI_VASPACE_A, p, sizeof(p), status);
+    if (rc == NV_GSP_RM_OK && out_vaspace) *out_vaspace = h;
+    return rc;
+}

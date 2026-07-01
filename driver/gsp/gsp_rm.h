@@ -25,15 +25,46 @@
 #define NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL       76u
 #define NV_VGPU_MSG_FUNCTION_GSP_RM_ALLOC        103u
 
-/* --- Классы RM-объектов (cl0000/cl0080/cl2080.h) --- */
+/* --- Классы RM-объектов (cl0000/cl0080/cl2080.h/cl90f1.h) --- */
 #define NV01_ROOT          0x00000000u
 #define NV01_DEVICE_0      0x00000080u
 #define NV20_SUBDEVICE_0   0x00002080u
+#define FERMI_VASPACE_A    0x000090f1u
 
 /* Канонические хэндлы цепочки (ровно как nouveau r535_gsp_*_ctor). */
 #define NV_GSP_RM_CLIENT_HANDLE  0xc1d00000u  /* | id (id=0) */
 #define NV_GSP_RM_DEVICE_HANDLE  0xde1d0000u
 #define NV_GSP_RM_SUBDEV_HANDLE  0x5d1d0000u
+#define NV_GSP_RM_VASPACE_HANDLE 0x90f10000u
+
+/* rpc_gsp_rm_control_v03_00 — шапка 24 байта (g_rpc-structures.h):
+   hClient@0, hObject@4, cmd@8, status@12, paramsSize@16, flags@20, params@24. */
+#define NV_RM_CTRL_HDR_SIZE       24u
+#define NV_RM_CTRL_HCLIENT_OFF     0u
+#define NV_RM_CTRL_HOBJECT_OFF     4u
+#define NV_RM_CTRL_CMD_OFF         8u
+#define NV_RM_CTRL_STATUS_OFF     12u
+#define NV_RM_CTRL_PARAMSIZE_OFF  16u
+#define NV_RM_CTRL_FLAGS_OFF      20u
+
+/* NV2080_CTRL_CMD_FB_GET_INFO_V2 (ctrl2080fb.h): читать конфиг VRAM/heap.
+   params = NV2080_CTRL_FB_GET_INFO_V2_PARAMS: fbInfoListSize@0 (u32),
+   fbInfoList[54]@4 — каждый NV2080_CTRL_FB_INFO = {index(u32), data(u32)} (8б). */
+#define NV2080_CTRL_CMD_FB_GET_INFO_V2       0x20801303u
+#define NV2080_CTRL_FB_INFO_MAX_LIST         54u          /* 0x36 */
+#define NV2080_CTRL_FB_GET_INFO_V2_SIZE      (4u + NV2080_CTRL_FB_INFO_MAX_LIST * 8u)  /* 436 */
+/* индексы (в KiB, если не сказано иначе) */
+#define NV2080_CTRL_FB_INFO_INDEX_BAR1_SIZE        0x05u
+#define NV2080_CTRL_FB_INFO_INDEX_RAM_SIZE         0x07u
+#define NV2080_CTRL_FB_INFO_INDEX_TOTAL_RAM_SIZE   0x08u
+#define NV2080_CTRL_FB_INFO_INDEX_HEAP_SIZE        0x09u
+#define NV2080_CTRL_FB_INFO_INDEX_HEAP_FREE        0x16u
+#define NV2080_CTRL_FB_INFO_INDEX_USABLE_RAM_SIZE  0x20u
+
+/* NV_VASPACE_ALLOCATION_PARAMETERS (nvos.h, 48б): index@0 flags@4 vaSize@8
+   vaStartInternal@16 vaLimitInternal@24 bigPageSize@32 vaBase@40. */
+#define NV_VASPACE_ALLOC_PARAMS_SIZE          48u
+#define NV_VASPACE_ALLOCATION_INDEX_GPU_NEW   0u
 
 /* rpc_gsp_rm_alloc_v03_00 — шапка 32 байта (g_rpc-structures.h):
    hClient@0, hParent@4, hObject@8, hClass@12, status@16, paramsSize@20,
@@ -136,5 +167,28 @@ int nv_gsp_rm_device_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient,
                           uint32_t *out_device, uint32_t *status);
 int nv_gsp_rm_subdevice_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
                              uint32_t *out_subdev, uint32_t *status);
+
+/* ===================== Проход B: RM_CONTROL + VA-пространство ===================== */
+
+/*
+ * GSP_RM_CONTROL (76): управляющий вызов cmd на объекте hObject. params — IN/OUT:
+ * запрос копируется из params, ответ GSP копируется обратно в params (params_len байт).
+ * *status ← поле status ответа (NV_OK==0). Порт r535_gsp_rpc_rm_ctrl_get/push.
+ */
+int nv_gsp_rm_control(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hObject, uint32_t cmd,
+                      uint8_t *params, uint32_t params_len, uint32_t *status);
+
+/*
+ * FB_GET_INFO_V2: прочитать n значений конфигурации VRAM/heap по индексам indices[]
+ * на субустройстве hSubdevice; результат → out_data[]. *status ← статус RM.
+ */
+int nv_gsp_fb_get_info(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hSubdevice,
+                       const uint32_t *indices, uint32_t *out_data, uint32_t n,
+                       uint32_t *status);
+
+/* Аллокация GPU VA-пространства (FERMI_VASPACE_A) под hDevice — корень GMMU.
+   index=GPU_NEW, прочие поля 0 (дефолтное новое полное пространство). */
+int nv_gsp_rm_vaspace_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
+                           uint32_t *out_vaspace, uint32_t *status);
 
 #endif /* RTXMACOC_GSP_RM_H */

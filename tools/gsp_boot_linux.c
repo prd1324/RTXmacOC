@@ -472,7 +472,7 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
        Канал уже поднят (INIT_DONE). Продолжаем с тех же указателей: cmdq.writePtr и
        msgq.readPtr, что оставил дренаж. Делаем первый двусторонний RPC
        GET_GSP_STATIC_INFO (карта FB-регионов), затем цепочку RM client→device→subdevice. */
-    int l3_static_ok = 0, l3_chain_ok = 0;
+    int l3_static_ok = 0, l3_chain_ok = 0, l3_ctrl_ok = 0, l3_vaspace_ok = 0;
     if (got) {
         nv_gsp_rpc_chan ch;
         memset(&ch, 0, sizeof(ch));
@@ -520,8 +520,36 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
         }
         l3_chain_ok = (rc0==NV_GSP_RM_OK && st0==0 && rc1==NV_GSP_RM_OK && st1==0 &&
                        rc2==NV_GSP_RM_OK && st2==0);
-        printf("СЛОЙ 3: итог — static_info=%s, RM-цепочка=%s\n",
-               l3_static_ok?"OK":"нет", l3_chain_ok?"OK":"нет");
+
+        /* ===== ПРОХОД B: работа с памятью через RPC ===== */
+        if (l3_chain_ok) {
+            /* --- B-метрика №1: RM_CONTROL FB_GET_INFO_V2 — конфиг VRAM/heap с GSP --- */
+            uint32_t idx[5] = { NV2080_CTRL_FB_INFO_INDEX_RAM_SIZE,
+                                NV2080_CTRL_FB_INFO_INDEX_TOTAL_RAM_SIZE,
+                                NV2080_CTRL_FB_INFO_INDEX_HEAP_SIZE,
+                                NV2080_CTRL_FB_INFO_INDEX_HEAP_FREE,
+                                NV2080_CTRL_FB_INFO_INDEX_BAR1_SIZE };
+            uint32_t val[5] = {0,0,0,0,0}, cst = 0xffffffff;
+            int crc = nv_gsp_fb_get_info(&ch, hcli, hsub, idx, val, 5, &cst);
+            if (crc == NV_GSP_RM_OK && cst == 0) {
+                l3_ctrl_ok = 1;
+                printf("СЛОЙ 3B: FB_GET_INFO_V2 OK (KiB): RAM=%u TOTAL_RAM=%u HEAP=%u HEAP_FREE=%u BAR1=%u\n",
+                       val[0], val[1], val[2], val[3], val[4]);
+            } else {
+                printf("СЛОЙ 3B: FB_GET_INFO_V2 FAIL rc=%d status=0x%x\n", crc, cst);
+            }
+
+            /* --- B-метрика №2: FERMI_VASPACE_A — корень GMMU (GPU VA-пространство) --- */
+            uint32_t hva=0, vst=0xffffffff;
+            int vrc = nv_gsp_rm_vaspace_ctor(&ch, hcli, hdev, &hva, &vst);
+            l3_vaspace_ok = (vrc == NV_GSP_RM_OK && vst == 0);
+            printf("СЛОЙ 3B: FERMI_VASPACE_A rc=%d status=0x%x handle=0x%08x%s\n",
+                   vrc, vst, hva, l3_vaspace_ok ? "" : "  (не OK)");
+        }
+
+        printf("СЛОЙ 3: итог — static_info=%s, RM-цепочка=%s, FB-control=%s, vaspace=%s\n",
+               l3_static_ok?"OK":"нет", l3_chain_ok?"OK":"нет",
+               l3_ctrl_ok?"OK":"нет", l3_vaspace_ok?"OK":"нет");
     }
 
     /* --- диагностика: тронул ли GSP очереди/логи --- */
@@ -561,6 +589,9 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
             printf("*** СЛОЙ 3: GET_GSP_STATIC_INFO OK; RM-цепочка НЕ завершена ***\n");
         else
             printf("*** СЛОЙ 3: двусторонний RPC пока не подтверждён ***\n");
+        if (l3_ctrl_ok || l3_vaspace_ok)
+            printf("*** СЛОЙ 3 (проход B): память через RPC — FB-control=%s, VA-пространство(GMMU)=%s ***\n",
+                   l3_ctrl_ok?"OK":"нет", l3_vaspace_ok?"OK":"нет");
         return 0;
     }
     if (brc==NV_OK && mb0==0 && active){

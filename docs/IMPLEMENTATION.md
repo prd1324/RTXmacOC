@@ -43,7 +43,7 @@ Big Sur+ нет (library validation + приватные интерфейсы + 
 |---|---|---|---|
 | 1 | PCIe bring-up, чтение `PMC_BOOT_0` | 🟡 CI (на железе не запускался) | `pcie_probe.c`, `ada_regs.h`, `driver/RTXProbe/`, `driver/RTXProbeDext/` |
 | 2 | GSP bring-up (FWSEC-FRTS→WPR2→GSP-RM→`GSP_INIT_DONE`) | 🟢 HW 2026-06-30 (Linux/VFIO) для `driver/gsp/*`; macOS-kext-шим `FwsecRun.cpp` — 🟡 CI | `tools/{vbios_dump,fwsec_run_linux,gsp_boot_linux}.c`, `falcon_regs.h`, `driver/gsp/*` |
-| 3 | Память (GMMU/VRAM) через RPC | 🟢 HW 2026-06-30 **проход A**: двусторонний RPC + RM client/device/subdevice (Linux/VFIO) | `driver/gsp/gsp_rm.*`, `tools/{gsp_boot_linux,gsp_rm_test}.c` |
+| 3 | Память (GMMU/VRAM) через RPC | 🟢 HW **проход A** (2026-06-30: RPC + RM client/device/subdevice) + **проход B** (2026-07-01: RM_CONTROL/FB_GET_INFO_V2 + FERMI_VASPACE_A/GMMU) | `driver/gsp/gsp_rm.*`, `tools/{gsp_boot_linux,gsp_rm_test}.c` |
 | 4–6 | каналы/дисплей/Metal | ⏳ (дисплей — заблокирован Apple, см. graphics-stack) | — |
 
 ---
@@ -174,12 +174,21 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
   Наш RM-клиент создан на GPU.
 - Доказательство: `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log` (тот же прогон
   `tools/gsp_boot_linux.c`, блок «СЛОЙ 3»; `msgq.writePtr` 7→11 — GSP ответил 4 раза).
-- **Полная тех-запись (смещения GspStaticConfigInfo, формат RM_ALLOC, нюансы):
-  `docs/gsp-layer3-rpc.md`.**
 - Смещения `GspStaticConfigInfo` (2168б; fbRegion@840, barPde@2088/2096, hInternal@2152+)
   получены compile-probe против SDK 535.113.01 + самопроверкой FB-карты на железе.
-- Дальше (проход B): аллокация VRAM (`ALLOC_MEMORY`/`NV01_MEMORY_LOCAL_USER`),
-  RM-control'ы (FB-инфо), GPU-VA (`FERMI_VASPACE_A`).
+
+**Проход B 🟢 HW 2026-07-01 — память через RPC:**
+- **B-метрика №1:** `GSP_RM_CONTROL (76)` / `FB_GET_INFO_V2 (0x20801303)` — `status=NV_OK`,
+  реальный конфиг: RAM=12576768 KiB (=12282 МиБ, совпало с PMC), HEAP=12355136,
+  HEAP_FREE=57720, BAR1=262144 KiB (=256 МиБ). Третий RPC-глагол работает.
+- **B-метрика №2:** `GSP_RM_ALLOC` `FERMI_VASPACE_A (0x90f1)` — `status=NV_OK`,
+  handle=0x90f10000. **GPU VA-пространство (корень GMMU) создано через RPC.**
+- Новый код: `nv_gsp_rm_control`, `nv_gsp_fb_get_info`, `nv_gsp_rm_vaspace_ctor`
+  в `driver/gsp/gsp_rm.{c,h}`; блок «3B» в оркестраторе. Доказательство:
+  `docs/hw-dumps/20260701-rtx4070s-layer3-passB-OK.log` (`msgq.writePtr` 11→13).
+- **Полная тех-запись: `docs/gsp-layer3-rpc.md`** (проходы A+B).
+- Дальше: аллокация VRAM-объекта (`NV01_MEMORY_LOCAL_USER`) + маппинг в VA-пространство;
+  затем слой 4 (каналы: FIFO/GR RM-control'ы).
 
 ---
 
