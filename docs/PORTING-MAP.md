@@ -308,8 +308,11 @@ GSP), но `msgq.writePtr=0` (нет GSP_INIT_DONE), LOGRM едва тронут
 | `nv_gsp_rm_control` | `r535_gsp_rpc_rm_ctrl_get/push` | rpc_gsp_rm_control_v03_00 (24б): hClient@0 hObject@4 cmd@8 status@12 paramsSize@16 flags@20 params@24; params IN/OUT | 🟢 HW |
 | `nv_gsp_fb_get_info` | OGK `ctrl2080fb.h` FB_GET_INFO_V2 | cmd=0x20801303; params fbInfoListSize@0 + fbInfoList[54] {index,data}(8б); индексы RAM=0x07/HEAP=0x09/HEAP_FREE=0x16/BAR1=0x05 | 🟢 HW (RAM=12282 МиБ) |
 | `nv_gsp_rm_vaspace_ctor` | `cl90f1.h` + `nvos.h` | FERMI_VASPACE_A(0x90f1), h=0x90f10000, NV_VASPACE_ALLOCATION_PARAMETERS(48б): index=GPU_NEW(0) | 🟢 HW |
+| `nv_gsp_rm_vram_memlist` | `instmem/r535.c` `fbsr_memlist` + `g_rpc-structures.h`/`sdk-structures.h`/`cl84a0.h` | ALLOC_MEMORY(4), NV01_MEMORY_LIST_FBMEM(0x82), rpc_alloc_memory_v13_01 (pteDesc@44, pte[]@48), flags=0x40000200, format=6, pte[i]=(phys>>12)+i | 🟢 HW (phys=0x13100000, 1 МиБ) |
 
-**Полная тех-запись:** `docs/gsp-layer3-rpc.md` (проходы A+B). Дальше: аллокация
-VRAM-объекта (`NV01_MEMORY_LOCAL_USER`) + маппинг в VA-пространство; слой 4 (каналы).
-Примечание: FB_GET_INFO_V2 отсутствовал в nouveau-выжимке — дотянут из полного
-публичного OGK-заголовка `ctrl2080fb.h` (535.113.01), в репо не коммитим.
+**Полная тех-запись:** `docs/gsp-layer3-rpc.md` (проходы A+B+C). Дальше: маппинг
+VRAM-объекта в VA-пространство (GPU-адрес); слой 4 (каналы: FIFO/GR).
+Примечания: FB_GET_INFO_V2 отсутствовал в nouveau-выжимке — дотянут из полного
+публичного OGK `ctrl2080fb.h` (535.113.01), в репо не коммитим. **Тупик:** VRAM НЕ
+через `NV01_MEMORY_LOCAL_USER`/heap-alloc GSP (отвергается) — гость даёт физ. страницы
+(memlist), см. тех-запись §4C/§5.

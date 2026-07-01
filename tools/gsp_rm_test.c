@@ -289,7 +289,38 @@ static void test_vaspace_ctor(void)
     CHECK(ld32(al + NV_RM_ALLOC_PARAMSIZE_OFF) == 48, "paramsSize == 48 (NV_VASPACE_ALLOCATION_PARAMETERS)");
 }
 
-/* --- тест 9: размеры структур и константы --- */
+/* --- тест 9: VRAM memlist (NV01_MEMORY_LIST_FBMEM через ALLOC_MEMORY) --- */
+static uint64_t ld64t(const uint8_t *p){ uint64_t v=0; for(int i=0;i<8;i++) v|=(uint64_t)p[i]<<(8*i); return v; }
+static void test_vram_memlist(void)
+{
+    printf("[test_vram_memlist]\n");
+    nv_gsp_rpc_chan ch; chan_init(&ch);
+    /* ответ GSP на ALLOC_MEMORY: тот же function=4, rpc_result=0 (echo, payload не важен) */
+    uint8_t rep[16]; memset(rep, 0, sizeof(rep));
+    put_msg(g_shm, &ch.lay, 0, NV_VGPU_MSG_FUNCTION_ALLOC_MEMORY, /*rpc_result*/0, rep, sizeof(rep), 1);
+    set_msgq_wptr(g_shm, &ch.lay, 1);
+
+    uint64_t phys = 0x10000000ull, size = 0x100000ull;  /* 256 страниц */
+    uint32_t hmem=0, rres=0xff;
+    int rc = nv_gsp_rm_vram_memlist(&ch, NV_GSP_RM_CLIENT_HANDLE, NV_GSP_RM_DEVICE_HANDLE,
+                                    phys, size, &hmem, &rres);
+    CHECK(rc == NV_GSP_RM_OK, "vram_memlist OK (rpc_result=0)");
+    CHECK(rres == 0, "rpc_result == 0");
+    CHECK(hmem == NV_GSP_RM_VRAM_HANDLE, "хэндл VRAM == 0x00ca0001");
+    /* framing запроса: функция, класс, flags, format, pageCount, pte-массив */
+    const uint8_t *ce = g_shm + ch.lay.cmdq_off + NV_GSP_QUEUE_ENTRYOFF + 0;
+    const uint8_t *rp = ce + NV_GSP_RPC_PAYLOAD_OFF;
+    CHECK(ld32(ce + NV_GSP_RPC_HDR_OFF + NV_GSP_RPC_F_FUNCTION) == NV_VGPU_MSG_FUNCTION_ALLOC_MEMORY, "function == ALLOC_MEMORY(4)");
+    CHECK(ld32(rp + NV_ALLOCMEM_HCLASS_OFF) == NV01_MEMORY_LIST_FBMEM, "hClass == NV01_MEMORY_LIST_FBMEM");
+    CHECK(ld32(rp + NV_ALLOCMEM_FLAGS_OFF) == NVOS02_FLAGS_FBMEM_CONTIG_NOMAP, "flags = VIDMEM|CONTIG|NO_MAP");
+    CHECK(ld32(rp + NV_ALLOCMEM_FORMAT_OFF) == NV_MMU_PTE_KIND_GENERIC_MEMORY, "format == GENERIC_MEMORY(6)");
+    CHECK(ld32(rp + NV_ALLOCMEM_PAGECOUNT_OFF) == 256, "pageCount == 256");
+    CHECK((ld32(rp + NV_ALLOCMEM_PTEDESC_OFF) >> 16) == 256, "pte_desc.length == 256 (старшие 16 бит)");
+    CHECK(ld64t(rp + NV_ALLOCMEM_PTEARR_OFF) == (phys >> 12), "pte[0] == phys>>12");
+    CHECK(ld64t(rp + NV_ALLOCMEM_PTEARR_OFF + 8) == (phys >> 12) + 1, "pte[1] == phys>>12 + 1 (contiguous)");
+}
+
+/* --- тест 10: размеры структур и константы --- */
 struct nv0000_mirror { uint32_t hClient; uint32_t processID; char processName[100]; };
 struct nv0080_mirror { uint32_t deviceId, hClientShare, hTargetClient, hTargetDevice;
                        int32_t flags; uint64_t vaSpaceSize, vaStartInternal, vaLimitInternal;
@@ -309,6 +340,8 @@ static void test_layout(void)
     CHECK(NV_RM_CTRL_HDR_SIZE == 24, "rpc_gsp_rm_control header == 24");
     CHECK(NV2080_CTRL_FB_GET_INFO_V2_SIZE == 436, "FB_GET_INFO_V2_PARAMS == 436 (4+54*8)");
     CHECK(NV_VASPACE_ALLOC_PARAMS_SIZE == 48, "NV_VASPACE_ALLOCATION_PARAMETERS == 48");
+    CHECK(NV_ALLOCMEM_PTEARR_OFF == 48, "pte_pde[] @48 в rpc_alloc_memory_v13_01");
+    CHECK(NVOS02_FLAGS_FBMEM_CONTIG_NOMAP == 0x40000200u, "NVOS02 flags VIDMEM|CONTIG|NO_MAP == 0x40000200");
 }
 
 int main(void)
@@ -321,6 +354,7 @@ int main(void)
     test_rm_control();
     test_fb_get_info();
     test_vaspace_ctor();
+    test_vram_memlist();
     test_layout();
     printf(failed ? "\n=== gsp_rm_test: ЕСТЬ ПРОВАЛЫ ===\n" : "\n=== gsp_rm_test: ВСЕ ТЕСТЫ ПРОШЛИ ===\n");
     return failed ? 1 : 0;

@@ -1,9 +1,10 @@
-# Слой 3 — двусторонний RPC к GSP-RM: проходы A + B (РЕШЕНО на железе)
+# Слой 3 — двусторонний RPC к GSP-RM: проходы A + B + C (РЕШЕНО на железе)
 
-**Статус:** 🟢 проход A (2026-06-30) + проход B (2026-07-01) на RTX 4070 Super
+**Статус:** 🟢 проход A (2026-06-30) + проходы B, C (2026-07-01) на RTX 4070 Super
 (AD104), Linux/VFIO.
 **Доказательство:** `docs/hw-dumps/20260630-rtx4070s-layer3-rpc-OK.log` (A),
-`docs/hw-dumps/20260701-rtx4070s-layer3-passB-OK.log` (B).
+`docs/hw-dumps/20260701-rtx4070s-layer3-passB-OK.log` (B),
+`docs/hw-dumps/20260701-rtx4070s-layer3-passC-vram-OK.log` (C).
 **Оркестратор:** `tools/gsp_boot_linux.c` (тот же прогон, что и слой 2; блоки «СЛОЙ 3»/«3B»).
 **Портируемая логика:** `driver/gsp/gsp_rm.{c,h}`. Офлайн-тест: `tools/gsp_rm_test.c`
 (`make gsp-rm-test`). Эталон — nouveau `r535.c`, nvrm-заголовки 535.113.01.
@@ -31,8 +32,13 @@
 4. `GSP_RM_ALLOC` `FERMI_VASPACE_A (0x90f1)`: `status=NV_OK` — **GPU VA-пространство
    (корень GMMU)** создано через RPC.
 
-Дальше: аллокация VRAM-объекта (`NV01_MEMORY_LOCAL_USER`/`ALLOC_MEMORY`) и маппинг в
-VA-пространство; RM-control'ы FIFO/GR для слоя 4 (каналы).
+**Проход C** (регистрация VRAM):
+5. `ALLOC_MEMORY (4)` / `NV01_MEMORY_LIST_FBMEM (0x82)`: `rpc_result=NV_OK` —
+   **зарегистрирован физический VRAM-диапазон** (1 МиБ по phys=0x13100000). В
+   GSP-модели VRAM'ом владеет гость: он даёт список физ. страниц (не GSP из кучи).
+
+Дальше: маппинг VRAM-объекта в VA-пространство (получить GPU-адрес); RM-control'ы
+FIFO/GR для слоя 4 (каналы).
 
 ---
 
@@ -62,7 +68,11 @@ FB_GET_INFO_V2 status=0 (KiB): RAM=12576768 (=12282 МиБ) TOTAL_RAM=12576768
                HEAP=12355136 HEAP_FREE=57720 BAR1=262144 (=256 МиБ)
 FERMI_VASPACE_A status=0 handle=0x90f10000       ← корень GMMU
 ```
-`msgq.tx.writePtr` вырос 7→11 (A: static_info+3 alloc) →13 (B: control+vaspace).
+Проход C:
+```
+VRAM memlist phys=0x13100000 size=0x100000 rpc_result=0 handle=0x00ca0001  ← 1 МиБ VRAM
+```
+`msgq.tx.writePtr`: 7 → 11 (A) → 13 (B) → 14 (C: memlist, +1). На каждый RPC — 1 ответ.
 
 ---
 
@@ -161,7 +171,39 @@ index@0 flags@4 vaSize@8 vaStartInternal@16 vaLimitInternal@24 bigPageSize@32 va
 
 ---
 
+## 4C. Проход C — регистрация VRAM (NV01_MEMORY_LIST_FBMEM via ALLOC_MEMORY)
+
+**Модель (важно): в GSP VRAM'ом владеет ГОСТЬ.** GSP-RM НЕ выделяет VRAM гостю из
+своей кучи. Гость выбирает физический диапазон (из usable FB-региона карты
+GET_STATIC_INFO) и **регистрирует список его физ. страниц** как memlist. Эталон —
+nouveau `fbsr_memlist` (`instmem/r535.c`).
+
+`nv_gsp_rm_vram_memlist` шлёт `ALLOC_MEMORY (4)` с `rpc_alloc_memory_v13_01`
+(g_rpc-structures.h):
+```
+hClient@0 hDevice@4 hMemory@8 hClass@12 flags@16 pteAdjust@20 format@24
+length@32(u64) pageCount@40 pteDesc@44
+```
+- `hClass = NV01_MEMORY_LIST_FBMEM (0x82)`.
+- `flags = 0x40000200` = NVOS02 PHYSICALITY_CONTIGUOUS(0)@7:4 | LOCATION_VIDMEM(2)@11:8
+  | MAPPING_NO_MAP(1)@31:30.
+- `format = 6` (NV_MMU_PTE_KIND_GENERIC_MEMORY), `length = size`, `pageCount = size>>12`.
+- `struct pte_desc` (sdk-structures.h): u32-битполе (idr:2, reserved1:14, **length:16**)
+  @44 → `length=pages` кладётся в старшие 16 бит; затем `pte_pde[]` (u64, 8-выровнен) @48,
+  где `pte_pde[i] = (phys>>12) + i` (contiguous).
+Успех = `rpc_result == 0` (обычный RPC, без внутреннего status). На железе: физ.
+диапазон 0x13100000 (256 МиБ вглубь usable FB-региона), 1 МиБ = 256 страниц → NV_OK.
+Реализация держит size ≤ ~3.9 МиБ (один страничный элемент cmdq).
+
+---
+
 ## 5. Тупики/нюансы (чтобы не потерять)
+
+- **VRAM НЕ аллоцируется через `NV01_MEMORY_LOCAL_USER` (0x40) + `NV_MEMORY_ALLOCATION_PARAMS`
+  из кучи GSP** — первый заход так делал и GSP отверг на уровне RPC (`rpc_result≠0`, НЕ
+  внутренний status; `sizeof(params)=120` был верен — дело не в размере). Правильно:
+  гость выбирает физ. страницы и регистрирует memlist (`NV01_MEMORY_LIST_FBMEM`, §4C).
+  Диагностика заняла один HW-прогон; не повторять неверную модель.
 
 - **`cmdq.rx.readPtr` остаётся 0** в диагностике — это НЕ значит, что GSP не читает
   cmdq. Факт обработки виден по росту `msgq.tx.writePtr` (7→11) и `status=0` ответов.
@@ -179,14 +221,17 @@ index@0 flags@4 vaSize@8 vaStartInternal@16 vaLimitInternal@24 bigPageSize@32 va
 - nouveau `r535.c`: `r535_gsp_cmdq_push`, `r535_gsp_msgq_wait/recv`,
   `r535_gsp_msg_recv`, `r535_gsp_rpc_send`, `r535_gsp_rpc_rm_alloc_get/push`,
   `r535_gsp_rpc_rm_ctrl_get/push`, `r535_gsp_client_ctor`/`device_ctor`/
-  `subdevice_ctor`, `r535_gsp_rpc_get_gsp_static_info`/`postinit`.
+  `subdevice_ctor`, `r535_gsp_rpc_get_gsp_static_info`/`postinit`;
+  `instmem/r535.c` `fbsr_memlist` (ALLOC_MEMORY + NV01_MEMORY_LIST_FBMEM).
 - nvrm 535.113.01: `g_rpc-structures.h` (rpc_gsp_rm_alloc/control_v03_00),
   `rpc_global_enums.h` (GET_GSP_STATIC_INFO=65, GSP_RM_CONTROL=76, GSP_RM_ALLOC=103),
   `cl0000.h`/`cl0080.h`/`cl2080.h` (классы+alloc-params), `cl90f1.h`
   (FERMI_VASPACE_A=0x90f1), `nvos.h` (NV_VASPACE_ALLOCATION_PARAMETERS),
   `nvlimits.h` (NV_PROC_NAME_MAX_LENGTH=100), `gsp_static_config.h`
   (GspStaticConfigInfo), `ctrl2080fb.h` (FB_REGION_INFO; FB_GET_INFO_V2=0x20801303
-  + индексы — из полного OGK-заголовка 535.113.01).
+  + индексы — из полного OGK-заголовка 535.113.01), `cl84a0.h`
+  (NV01_MEMORY_LIST_FBMEM=0x82), `g_rpc-structures.h` (rpc_alloc_memory_v13_01),
+  `sdk-structures.h` (pte_desc), `nvos.h` (NVOS02 flags).
 
 Реализация: `driver/gsp/gsp_rm.{c,h}`, очереди `driver/gsp/gsp_rpc.{c,h}`,
-оркестратор `tools/gsp_boot_linux.c` (блоки «СЛОЙ 3»/«3B»).
+оркестратор `tools/gsp_boot_linux.c` (блоки «СЛОЙ 3»/«3B»/«3C»).

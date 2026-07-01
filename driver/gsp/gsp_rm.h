@@ -25,17 +25,20 @@
 #define NV_VGPU_MSG_FUNCTION_GSP_RM_CONTROL       76u
 #define NV_VGPU_MSG_FUNCTION_GSP_RM_ALLOC        103u
 
-/* --- Классы RM-объектов (cl0000/cl0080/cl2080.h/cl90f1.h) --- */
-#define NV01_ROOT          0x00000000u
-#define NV01_DEVICE_0      0x00000080u
-#define NV20_SUBDEVICE_0   0x00002080u
-#define FERMI_VASPACE_A    0x000090f1u
+/* --- Классы RM-объектов (cl0000/cl0080/cl2080.h/cl90f1.h/cl84a0.h) --- */
+#define NV01_ROOT               0x00000000u
+#define NV01_DEVICE_0           0x00000080u
+#define NV20_SUBDEVICE_0        0x00002080u
+#define FERMI_VASPACE_A         0x000090f1u
+#define NV01_MEMORY_LIST_FBMEM  0x00000082u   /* VRAM memlist (гость даёт физ. страницы) */
+#define NV01_MEMORY_LIST_SYSTEM 0x00000081u
 
 /* Канонические хэндлы цепочки (ровно как nouveau r535_gsp_*_ctor). */
 #define NV_GSP_RM_CLIENT_HANDLE  0xc1d00000u  /* | id (id=0) */
 #define NV_GSP_RM_DEVICE_HANDLE  0xde1d0000u
 #define NV_GSP_RM_SUBDEV_HANDLE  0x5d1d0000u
 #define NV_GSP_RM_VASPACE_HANDLE 0x90f10000u
+#define NV_GSP_RM_VRAM_HANDLE    0x00ca0001u  /* наш хэндл VRAM-объекта */
 
 /* rpc_gsp_rm_control_v03_00 — шапка 24 байта (g_rpc-structures.h):
    hClient@0, hObject@4, cmd@8, status@12, paramsSize@16, flags@20, params@24. */
@@ -65,6 +68,32 @@
    vaStartInternal@16 vaLimitInternal@24 bigPageSize@32 vaBase@40. */
 #define NV_VASPACE_ALLOC_PARAMS_SIZE          48u
 #define NV_VASPACE_ALLOCATION_INDEX_GPU_NEW   0u
+
+/* --- VRAM-аллокация через ALLOC_MEMORY (memlist, как nouveau fbsr_memlist) ---
+ * В GSP-модели VRAM'ом владеет гость: он выбирает физический диапазон и регистрирует
+ * его как memlist. rpc_alloc_memory_v13_01 (g_rpc-structures.h) + pte_desc
+ * (sdk-structures.h). Функция ALLOC_MEMORY=4 (rpc_global_enums.h). */
+#define NV_VGPU_MSG_FUNCTION_ALLOC_MEMORY  4u
+/* rpc_alloc_memory_v13_01: hClient@0 hDevice@4 hMemory@8 hClass@12 flags@16
+   pteAdjust@20 format@24 length@32(u64) pageCount@40 pteDesc@44. */
+#define NV_ALLOCMEM_HCLIENT_OFF    0u
+#define NV_ALLOCMEM_HDEVICE_OFF    4u
+#define NV_ALLOCMEM_HMEMORY_OFF    8u
+#define NV_ALLOCMEM_HCLASS_OFF    12u
+#define NV_ALLOCMEM_FLAGS_OFF     16u
+#define NV_ALLOCMEM_PTEADJUST_OFF 20u
+#define NV_ALLOCMEM_FORMAT_OFF    24u
+#define NV_ALLOCMEM_LENGTH_OFF    32u
+#define NV_ALLOCMEM_PAGECOUNT_OFF 40u
+/* struct pte_desc: u32 bitfield (idr:2, reserved1:14, length:16) @44, затем
+   pte_pde[] (u64, 8-выровнен) @48. length кладётся в старшие 16 бит u32. */
+#define NV_ALLOCMEM_PTEDESC_OFF   44u
+#define NV_ALLOCMEM_PTEARR_OFF    48u
+/* NVOS02 flags (nvos.h): PHYSICALITY_CONTIGUOUS(0)@7:4 | LOCATION_VIDMEM(2)@11:8 |
+   MAPPING_NO_MAP(1)@31:30 = (2<<8)|(1<<30) = 0x40000200. */
+#define NVOS02_FLAGS_FBMEM_CONTIG_NOMAP  0x40000200u
+#define NV_MMU_PTE_KIND_GENERIC_MEMORY   6u   /* format для VIDMEM */
+#define NV_GSP_PAGE_SHIFT                12u
 
 /* rpc_gsp_rm_alloc_v03_00 — шапка 32 байта (g_rpc-structures.h):
    hClient@0, hParent@4, hObject@8, hClass@12, status@16, paramsSize@20,
@@ -159,7 +188,7 @@ int nv_gsp_get_static_info(nv_gsp_rpc_chan *ch, nv_gsp_static_info *out);
  */
 int nv_gsp_rm_alloc(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hParent,
                     uint32_t hObject, uint32_t hClass,
-                    const uint8_t *params, uint32_t params_len, uint32_t *status);
+                    uint8_t *params, uint32_t params_len, uint32_t *status);
 
 /* Конструкторы цепочки (root→device→subdevice). *out_* ← хэндл, *status ← статус. */
 int nv_gsp_rm_client_ctor(nv_gsp_rpc_chan *ch, uint32_t *out_client, uint32_t *status);
@@ -190,5 +219,16 @@ int nv_gsp_fb_get_info(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hSubdevic
    index=GPU_NEW, прочие поля 0 (дефолтное новое полное пространство). */
 int nv_gsp_rm_vaspace_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
                            uint32_t *out_vaspace, uint32_t *status);
+
+/*
+ * Регистрация VRAM-диапазона как memlist (NV01_MEMORY_LIST_FBMEM) через ALLOC_MEMORY.
+ * Гость выбирает физ. смещение phys (из usable FB-региона) и размер size (кратно 4К,
+ * contiguous). GSP регистрирует объект hMemory. Возврат: *out_handle — хэндл,
+ * *rpc_result — поле rpc_result ответа (0 = успех). Порт nouveau fbsr_memlist.
+ * Ограничение реализации: size ≤ ~3.9 МиБ (один страничный элемент cmdq).
+ */
+int nv_gsp_rm_vram_memlist(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
+                           uint64_t phys, uint64_t size,
+                           uint32_t *out_handle, uint32_t *rpc_result);
 
 #endif /* RTXMACOC_GSP_RM_H */

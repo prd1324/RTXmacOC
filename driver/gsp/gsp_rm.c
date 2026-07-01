@@ -18,6 +18,8 @@ static uint64_t ld64(const uint8_t *p)
 { uint64_t v=0; for (int i=0;i<8;i++) v |= (uint64_t)p[i]<<(8*i); return v; }
 static void st32(uint8_t *p, uint32_t v)
 { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); p[2]=(uint8_t)(v>>16); p[3]=(uint8_t)(v>>24); }
+static void st64(uint8_t *p, uint64_t v)
+{ for (int i=0;i<8;i++) p[i]=(uint8_t)(v>>(8*i)); }
 
 /* Прочитать msgqRxHeader.readPtr нашего msgq (мы — потребитель статус-очереди). */
 static void msgq_set_readptr(nv_gsp_rpc_chan *ch, uint32_t rptr)
@@ -130,7 +132,7 @@ int nv_gsp_get_static_info(nv_gsp_rpc_chan *ch, nv_gsp_static_info *out)
 
 int nv_gsp_rm_alloc(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hParent,
                     uint32_t hObject, uint32_t hClass,
-                    const uint8_t *params, uint32_t params_len, uint32_t *status)
+                    uint8_t *params, uint32_t params_len, uint32_t *status)
 {
     if (!ch) return NV_GSP_RM_ERR_ARG;
 
@@ -157,6 +159,12 @@ int nv_gsp_rm_alloc(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hParent,
     if (rres != 0) return NV_GSP_RM_ERR_BOUNDS;          /* транспорт RPC дал ошибку */
     if (rlen < NV_RM_ALLOC_HDR_SIZE) return NV_GSP_RM_ERR_BOUNDS;
     if (status) *status = ld32(rep + NV_RM_ALLOC_STATUS_OFF);  /* NV_OK==0 */
+    /* params — IN/OUT: вернуть OUT-поля ответа (offset/size и т.п.) в буфер вызывающего. */
+    if (params && params_len) {
+        uint32_t avail = rlen - NV_RM_ALLOC_HDR_SIZE;
+        uint32_t n = params_len < avail ? params_len : avail;
+        for (uint32_t i = 0; i < n; i++) params[i] = rep[NV_RM_ALLOC_HDR_SIZE + i];
+    }
     return NV_GSP_RM_OK;
 }
 
@@ -270,4 +278,43 @@ int nv_gsp_rm_vaspace_ctor(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevi
     int rc = nv_gsp_rm_alloc(ch, hClient, hDevice, h, FERMI_VASPACE_A, p, sizeof(p), status);
     if (rc == NV_GSP_RM_OK && out_vaspace) *out_vaspace = h;
     return rc;
+}
+
+int nv_gsp_rm_vram_memlist(nv_gsp_rpc_chan *ch, uint32_t hClient, uint32_t hDevice,
+                           uint64_t phys, uint64_t size,
+                           uint32_t *out_handle, uint32_t *rpc_result)
+{
+    if (!ch) return NV_GSP_RM_ERR_ARG;
+    if (size == 0 || (size & 0xfffu) || (phys & 0xfffu)) return NV_GSP_RM_ERR_ARG;
+    uint32_t pages = (uint32_t)(size >> NV_GSP_PAGE_SHIFT);
+    uint32_t req_len = NV_ALLOCMEM_PTEARR_OFF + pages * 8u;
+
+    static uint8_t req[8192];                       /* до ~500 страниц (≈2 МиБ) в один элемент */
+    if (req_len > sizeof(req)) return NV_GSP_RM_ERR_BOUNDS;
+    for (uint32_t i = 0; i < req_len; i++) req[i] = 0;
+
+    uint32_t h = NV_GSP_RM_VRAM_HANDLE;
+    st32(req + NV_ALLOCMEM_HCLIENT_OFF,   hClient);
+    st32(req + NV_ALLOCMEM_HDEVICE_OFF,   hDevice);
+    st32(req + NV_ALLOCMEM_HMEMORY_OFF,   h);
+    st32(req + NV_ALLOCMEM_HCLASS_OFF,    NV01_MEMORY_LIST_FBMEM);
+    st32(req + NV_ALLOCMEM_FLAGS_OFF,     NVOS02_FLAGS_FBMEM_CONTIG_NOMAP);
+    st32(req + NV_ALLOCMEM_PTEADJUST_OFF, 0u);
+    st32(req + NV_ALLOCMEM_FORMAT_OFF,    NV_MMU_PTE_KIND_GENERIC_MEMORY);
+    st64(req + NV_ALLOCMEM_LENGTH_OFF,    size);
+    st32(req + NV_ALLOCMEM_PAGECOUNT_OFF, pages);
+    /* pte_desc: idr=0, reserved1=0, length=pages → в старших 16 битах u32. */
+    st32(req + NV_ALLOCMEM_PTEDESC_OFF,   (uint32_t)(pages & 0xffffu) << 16);
+    /* pte_pde[i] = (phys>>12) + i (contiguous), u64 каждый. */
+    uint64_t pfn = phys >> NV_GSP_PAGE_SHIFT;
+    for (uint32_t i = 0; i < pages; i++)
+        st64(req + NV_ALLOCMEM_PTEARR_OFF + (size_t)i * 8u, pfn + i);
+
+    uint32_t rlen = 0, rres = 0xffffffffu;
+    int rc = nv_gsp_rpc_call(ch, NV_VGPU_MSG_FUNCTION_ALLOC_MEMORY,
+                             req, req_len, NULL, 0, &rlen, &rres, 4000000u);
+    if (rc != NV_GSP_RM_OK) return rc;
+    if (rpc_result) *rpc_result = rres;
+    if (out_handle) *out_handle = h;
+    return (rres == 0) ? NV_GSP_RM_OK : NV_GSP_RM_ERR_BOUNDS;
 }

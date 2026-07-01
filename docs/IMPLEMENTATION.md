@@ -43,7 +43,7 @@ Big Sur+ нет (library validation + приватные интерфейсы + 
 |---|---|---|---|
 | 1 | PCIe bring-up, чтение `PMC_BOOT_0` | 🟡 CI (на железе не запускался) | `pcie_probe.c`, `ada_regs.h`, `driver/RTXProbe/`, `driver/RTXProbeDext/` |
 | 2 | GSP bring-up (FWSEC-FRTS→WPR2→GSP-RM→`GSP_INIT_DONE`) | 🟢 HW 2026-06-30 (Linux/VFIO) для `driver/gsp/*`; macOS-kext-шим `FwsecRun.cpp` — 🟡 CI | `tools/{vbios_dump,fwsec_run_linux,gsp_boot_linux}.c`, `falcon_regs.h`, `driver/gsp/*` |
-| 3 | Память (GMMU/VRAM) через RPC | 🟢 HW **проход A** (2026-06-30: RPC + RM client/device/subdevice) + **проход B** (2026-07-01: RM_CONTROL/FB_GET_INFO_V2 + FERMI_VASPACE_A/GMMU) | `driver/gsp/gsp_rm.*`, `tools/{gsp_boot_linux,gsp_rm_test}.c` |
+| 3 | Память (GMMU/VRAM) через RPC | 🟢 HW **A** (RPC + RM client/device/subdevice) + **B** (RM_CONTROL/FB_GET_INFO_V2 + FERMI_VASPACE_A/GMMU) + **C** (VRAM memlist NV01_MEMORY_LIST_FBMEM), 2026-06-30..07-01 | `driver/gsp/gsp_rm.*`, `tools/{gsp_boot_linux,gsp_rm_test}.c` |
 | 4–6 | каналы/дисплей/Metal | ⏳ (дисплей — заблокирован Apple, см. graphics-stack) | — |
 
 ---
@@ -186,9 +186,17 @@ WPR2-границы, GFW boot, `NV_PGSP_QUEUE_HEAD`.
 - Новый код: `nv_gsp_rm_control`, `nv_gsp_fb_get_info`, `nv_gsp_rm_vaspace_ctor`
   в `driver/gsp/gsp_rm.{c,h}`; блок «3B» в оркестраторе. Доказательство:
   `docs/hw-dumps/20260701-rtx4070s-layer3-passB-OK.log` (`msgq.writePtr` 11→13).
-- **Полная тех-запись: `docs/gsp-layer3-rpc.md`** (проходы A+B).
-- Дальше: аллокация VRAM-объекта (`NV01_MEMORY_LOCAL_USER`) + маппинг в VA-пространство;
-  затем слой 4 (каналы: FIFO/GR RM-control'ы).
+
+**Проход C 🟢 HW 2026-07-01 — регистрация VRAM:**
+- `ALLOC_MEMORY (4)` / `NV01_MEMORY_LIST_FBMEM (0x82)` — `rpc_result=NV_OK`.
+  Зарегистрирован физ. VRAM-диапазон (1 МиБ @ phys=0x13100000, 256 страниц). В
+  GSP-модели VRAM'ом владеет ГОСТЬ: даёт список физ. страниц (не GSP из кучи).
+- **Грабли:** первый заход через `NV01_MEMORY_LOCAL_USER (0x40)` + heap-alloc GSP
+  отверг (`rpc_result≠0`); правильно — memlist (порт `fbsr_memlist`). Код:
+  `nv_gsp_rm_vram_memlist`. Доказательство:
+  `docs/hw-dumps/20260701-rtx4070s-layer3-passC-vram-OK.log`.
+- **Полная тех-запись: `docs/gsp-layer3-rpc.md`** (проходы A+B+C).
+- Дальше: маппинг VRAM-объекта в VA-пространство (GPU-адрес); затем слой 4 (каналы).
 
 ---
 

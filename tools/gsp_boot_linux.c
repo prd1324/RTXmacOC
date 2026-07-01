@@ -472,7 +472,7 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
        Канал уже поднят (INIT_DONE). Продолжаем с тех же указателей: cmdq.writePtr и
        msgq.readPtr, что оставил дренаж. Делаем первый двусторонний RPC
        GET_GSP_STATIC_INFO (карта FB-регионов), затем цепочку RM client→device→subdevice. */
-    int l3_static_ok = 0, l3_chain_ok = 0, l3_ctrl_ok = 0, l3_vaspace_ok = 0;
+    int l3_static_ok = 0, l3_chain_ok = 0, l3_ctrl_ok = 0, l3_vaspace_ok = 0, l3_vram_ok = 0;
     if (got) {
         nv_gsp_rpc_chan ch;
         memset(&ch, 0, sizeof(ch));
@@ -545,11 +545,33 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
             l3_vaspace_ok = (vrc == NV_GSP_RM_OK && vst == 0);
             printf("СЛОЙ 3B: FERMI_VASPACE_A rc=%d status=0x%x handle=0x%08x%s\n",
                    vrc, vst, hva, l3_vaspace_ok ? "" : "  (не OK)");
+
+            /* --- ПРОХОД C: регистрация VRAM-диапазона (NV01_MEMORY_LIST_FBMEM) ---
+               В GSP-модели VRAM'ом владеет гость: выбираем физ. диапазон из usable
+               FB-региона (reserved=0, не protected) и регистрируем его memlist'ом. */
+            uint64_t vsize = 0x100000; /* 1 МиБ = 256 страниц */
+            uint64_t vphys = 0; int have_phys = 0;
+            for (uint32_t i = 0; i < si.num_regions && !have_phys; i++) {
+                if (si.regions[i].reserved || si.regions[i].prot) continue;
+                uint64_t base = (si.regions[i].base + 0xfffff) & ~0xfffffull;   /* 1 МиБ-выравн. */
+                uint64_t cand = base + 0x10000000ull;                           /* 256 МиБ вглубь */
+                if (cand + vsize - 1 <= si.regions[i].limit) { vphys = cand; have_phys = 1; }
+                else if (base + vsize - 1 <= si.regions[i].limit) { vphys = base; have_phys = 1; }
+            }
+            if (have_phys) {
+                uint32_t hmem=0, mrres=0xffffffff;
+                int mrc = nv_gsp_rm_vram_memlist(&ch, hcli, hdev, vphys, vsize, &hmem, &mrres);
+                l3_vram_ok = (mrc == NV_GSP_RM_OK && mrres == 0);
+                printf("СЛОЙ 3C: VRAM memlist phys=0x%llx size=0x%llx rc=%d rpc_result=0x%x handle=0x%08x\n",
+                       (unsigned long long)vphys, (unsigned long long)vsize, mrc, mrres, hmem);
+            } else {
+                printf("СЛОЙ 3C: не нашёл usable FB-региона под 1 МиБ\n");
+            }
         }
 
-        printf("СЛОЙ 3: итог — static_info=%s, RM-цепочка=%s, FB-control=%s, vaspace=%s\n",
+        printf("СЛОЙ 3: итог — static_info=%s, RM-цепочка=%s, FB-control=%s, vaspace=%s, VRAM-alloc=%s\n",
                l3_static_ok?"OK":"нет", l3_chain_ok?"OK":"нет",
-               l3_ctrl_ok?"OK":"нет", l3_vaspace_ok?"OK":"нет");
+               l3_ctrl_ok?"OK":"нет", l3_vaspace_ok?"OK":"нет", l3_vram_ok?"OK":"нет");
     }
 
     /* --- диагностика: тронул ли GSP очереди/логи --- */
@@ -592,6 +614,8 @@ static int run(const nv_mmio_t *io, struct arena *ar, const char *bdf)
         if (l3_ctrl_ok || l3_vaspace_ok)
             printf("*** СЛОЙ 3 (проход B): память через RPC — FB-control=%s, VA-пространство(GMMU)=%s ***\n",
                    l3_ctrl_ok?"OK":"нет", l3_vaspace_ok?"OK":"нет");
+        if (l3_vram_ok)
+            printf("*** СЛОЙ 3 (проход C): регистрация VRAM-объекта (NV01_MEMORY_LIST_FBMEM) — OK ***\n");
         return 0;
     }
     if (brc==NV_OK && mb0==0 && active){
